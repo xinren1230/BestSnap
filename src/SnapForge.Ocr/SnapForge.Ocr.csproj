@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Optional plugin: Windows.Media.Ocr + Windows.Media.Editing (WinRT). Kept out of the main exe so SnapForge.exe stays net8.0-windows and small. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Offline formula recognition (pix2text-mfr ONNX); native onnxruntime.dll ships inside this plugin folder. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Built-in Chinese + English OCR: PaddleOCR PP-OCRv4 mobile det/rec (Apache-2.0, ONNX export by RapidOCR). Ends up embedded in SnapForge.exe via the plugin folder. -->
+    <None Include="models\*.onnx" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" LinkBase="models" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Contract assembly comes from the host; do not copy it next to the plugin. -->
+    <ProjectReference Include="..\SnapForge.Abstractions\SnapForge.Abstractions.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

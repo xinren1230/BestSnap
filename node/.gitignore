@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-app/
+test-results/
+models/pix2text-mfr/
+web/node_modules/
+web/dist/
+web/public/models/
+web/public/ort/
+web/test-results/
+web/playwright-report/
+*.mp4
+*.mkv
+!web/public/*.mp4
+.DS_Store

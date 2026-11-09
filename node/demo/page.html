@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>SnapForge demo page</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #e8eaf0; color: #111;
+    font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", sans-serif; }
+  #ocr-target, #formula-target, #qr-target {
+    position: absolute; background: #fff; border: 2px solid #c4c4cc; border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.08); padding: 16px 22px;
+  }
+  /* Left column stays visible when result/history windows open on the right. */
+  #ocr-target { left: 40px; top: 64px; width: 620px; }
+  #ocr-target h1 { font-size: 30px; margin: 0 0 10px; }
+  #ocr-target p { font-size: 22px; line-height: 1.4; margin: 6px 0; }
+  #formula-target { left: 40px; top: 310px; width: 620px; min-height: 170px; }
+  #formula-target h2 { font-size: 18px; margin: 0 0 10px; color: #444; }
+  #math { font-size: 26px; }
+  #qr-target { left: 40px; top: 560px; width: 240px; text-align: center; }
+  #qr-target h2 { font-size: 18px; margin: 0 0 10px; color: #444; }
+  #qr-target img { width: 180px; height: 180px; background: #fff; }
+</style>
+<link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css"/>
+</head>
+<body>
+  <div id="ocr-target">
+    <h1>SnapForge 演示页</h1>
+    <p>升级到 Windows 11 系统</p>
+    <p>Hello World, open source tool</p>
+    <p>SnapForge 离线 OCR 与公式识别</p>
+  </div>
+  <div id="formula-target">
+    <h2>示例公式</h2>
+    <div id="math"></div>
+  </div>
+  <div id="qr-target">
+    <h2>示例二维码</h2>
+    <img src="qr.png" alt="QR"/>
+    <p style="font-size:14px;color:#666">example.com</p>
+  </div>
+  <script src="../node_modules/katex/dist/katex.min.js"></script>
+  <script>
+    if (window.katex) katex.render("x = \\frac{-b \\pm \\sqrt{b^{2}-4ac}}{2a}", document.getElementById("math"), { throwOnError: false, displayMode: true });
+    else document.getElementById("math").textContent = "x = (-b ± sqrt(b²-4ac)) / 2a";
+  </script>
+</body>
+</html>

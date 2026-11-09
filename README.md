@@ -28,11 +28,38 @@
   - [⬇️ 直接下载安装包 BestSnap-Setup-1.1.1.exe](https://github.com/xinren1230/BestSnap/releases/latest/download/BestSnap-Setup-1.1.1.exe)
   - 或打开 [Releases 页面](https://github.com/xinren1230/BestSnap/releases/latest) 查看校验文件与说明
   - 一键安装，所有依赖（运行时、OCR 和公式模型）已打包在内，已用 Certum 代码签名
-- **Linux / macOS**：暂无原生桌面安装包。
+- **Linux / macOS**：暂无原生桌面安装包；Linux 可从源码运行，见下方“从源码构建”。
 
 ### 隐私
 
 所有识别都在本地完成：Windows 版在你的电脑上离线运行。**截图和图片不会上传到任何服务器。**
+
+### 从源码构建
+
+**Windows 版**（`src/`，WPF / .NET 8，需在 Windows 上构建）：
+
+1. 安装 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)（x64）。打安装包还需 Inno Setup 6.5+（`winget install JRSoftware.InnoSetup`）。
+2. 在 PowerShell 中，于仓库根目录运行：
+
+```powershell
+dotnet test src\SnapForge.Tests\SnapForge.Tests.csproj -c Release   # 单元测试
+.\build.ps1                  # 生成 publish\BestSnap.exe（需 .NET 8 Desktop Runtime）
+.\build.ps1 -SelfContained   # 免运行时的单文件版本
+.\build.ps1 -Installer       # 生成 dist\BestSnap-Setup-<版本>.exe 一键安装包
+```
+
+可选 `-SignThumbprint <证书指纹>` 做代码签名；仓库里不含任何证书或密钥。源码工程内部仍沿用 SnapForge 作为项目名。
+
+**Linux 版**（`node/`，Node.js 20+ / Electron，Ubuntu / Debian x64，X11）：
+
+```bash
+cd node
+bash scripts/setup.sh   # 安装 apt 依赖、npm ci、拷贝 OCR 模型、下载并校验公式模型
+npm test
+npm start               # 启动 Electron 工具栏
+```
+
+更多说明（命令行用法、AppImage 打包）见 [node/README.md](node/README.md)。
 
 ### 许可
 
@@ -60,11 +87,38 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
   - [⬇️ Direct download BestSnap-Setup-1.1.1.exe](https://github.com/xinren1230/BestSnap/releases/latest/download/BestSnap-Setup-1.1.1.exe)
   - Or open the [Releases page](https://github.com/xinren1230/BestSnap/releases/latest) for the checksum and notes
   - One-click installer with every dependency (runtime, OCR and formula models) bundled, Certum code-signed, SHA256 on the release page
-- **Linux / macOS**: no native desktop installer yet.
+- **Linux / macOS**: no native desktop installer yet; Linux can run from source, see *Build from source* below.
 
 ### Privacy
 
 Everything runs locally: the Windows app works offline on your PC. **Your screenshots and images are never uploaded.**
+
+### Build from source
+
+**Windows** (`src/`, WPF / .NET 8, build on Windows):
+
+1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (x64). The installer build also needs Inno Setup 6.5+ (`winget install JRSoftware.InnoSetup`).
+2. In PowerShell at the repository root:
+
+```powershell
+dotnet test src\SnapForge.Tests\SnapForge.Tests.csproj -c Release   # unit tests
+.\build.ps1                  # publish\BestSnap.exe (needs the .NET 8 Desktop Runtime)
+.\build.ps1 -SelfContained   # single-file build, no runtime needed
+.\build.ps1 -Installer       # dist\BestSnap-Setup-<version>.exe one-click installer
+```
+
+Optional `-SignThumbprint <cert thumbprint>` signs the output; no certificates or keys are stored in the repo. Project files internally still use the SnapForge name.
+
+**Linux** (`node/`, Node.js 20+ / Electron, Ubuntu / Debian x64, X11):
+
+```bash
+cd node
+bash scripts/setup.sh   # apt deps, npm ci, OCR models, formula model download with SHA-256 check
+npm test
+npm start               # launches the Electron toolbar
+```
+
+See [node/README.md](node/README.md) for CLI usage and AppImage packaging.
 
 ### License
 

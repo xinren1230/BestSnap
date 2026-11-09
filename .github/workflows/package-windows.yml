@@ -1,0 +1,86 @@
+# Manual packaging only. GitHub-hosted windows-latest (cloud), not a user PC.
+# Does not create GitHub Releases. Artifacts are explicitly UNSIGNED.
+#
+# Certum SimplySign official EXE path (not used by this workflow yet):
+#   https://support.certum.eu/en/installation-of-the-simplysign-applications/
+#   https://files.certum.eu/documents/manual_en/CS-Code_Signing_in_the_Cloud_Signtool_jarsigner_signing.pdf
+# Signing/publish stay disabled until a verified Authenticode session exists.
+
+name: Package Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      self_contained:
+        description: Pass -SelfContained to build.ps1 (larger exe, no Desktop Runtime)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build unsigned (win-x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout dispatched ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Unit tests
+        run: dotnet test src/SnapForge.Tests/SnapForge.Tests.csproj -c Release --nologo
+
+      - name: Package with build.ps1
+        shell: pwsh
+        run: |
+          if ("${{ inputs.self_contained }}" -eq "true") {
+            ./build.ps1 -SelfContained
+          } else {
+            ./build.ps1
+          }
+          if (-not (Test-Path -LiteralPath "publish/BestSnap.exe")) {
+            throw "build.ps1 did not produce publish/BestSnap.exe"
+          }
+
+      - name: Stage unsigned dist (license + SHA-256)
+        shell: pwsh
+        run: |
+          $out = "dist/unsigned"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Copy-Item -LiteralPath "publish/BestSnap.exe" -Destination "$out/BestSnap.exe"
+          Copy-Item -LiteralPath "LICENSE" -Destination "$out/LICENSE"
+          Copy-Item -LiteralPath "NOTICE" -Destination "$out/NOTICE"
+          $hash = (Get-FileHash -LiteralPath "$out/BestSnap.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "$out/SHA256SUMS.txt" -Encoding ascii -Value "$hash  BestSnap.exe"
+          $recipe = "build.ps1"
+          if ("${{ inputs.self_contained }}" -eq "true") { $recipe += " -SelfContained" }
+          @"
+          UNSIGNED BUILD — NOT AUTHENTICODE-SIGNED — NOT A GITHUB RELEASE
+          Source: ${{ github.repository }}@${{ github.sha }}
+          Ref: ${{ github.ref }}
+          Recipe: $recipe
+          License: Apache-2.0 (LICENSE + NOTICE). Third-party components keep their original licenses.
+          Do not distribute this folder as a signed BestSnap release.
+          "@ | Set-Content -LiteralPath "$out/UNSIGNED-BUILD.txt" -Encoding utf8
+          Get-Content "$out/SHA256SUMS.txt"
+          Get-Item "$out/BestSnap.exe" | Format-List Name, Length
+
+      - name: Upload unsigned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BestSnap-win-x64-UNSIGNED-${{ github.sha }}
+          path: dist/unsigned/**
+          if-no-files-found: error
+          retention-days: 14

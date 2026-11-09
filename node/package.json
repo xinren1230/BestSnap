@@ -1,0 +1,72 @@
+{
+  "name": "snapforge",
+  "version": "1.0.0",
+  "description": "SnapForge for Linux: offline OCR, formula → LaTeX, capture, editor, recording",
+  "license": "Apache-2.0",
+  "author": "Xinren Chen",
+  "private": true,
+  "type": "module",
+  "main": "dist/electron/main.js",
+  "bin": {
+    "snapforge": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-static.mjs",
+    "start": "npm run build && electron .",
+    "cli": "tsx src/cli/index.ts",
+    "snapforge": "tsx src/cli/index.ts",
+    "test": "tsx --test --test-timeout=180000 tests/*.test.ts",
+    "fixtures": "node scripts/generate-fixtures.mjs",
+    "setup": "bash scripts/setup.sh",
+    "download-models": "bash scripts/download-models.sh",
+    "pack:appimage": "npm run build && bash scripts/build-appimage.sh",
+    "smoke": "bash scripts/smoke-electron.sh",
+    "web": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:test": "npm --prefix web test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@zxing/library": "^0.21.3",
+    "katex": "^0.16.21",
+    "onnxruntime-node": "1.20.1",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "qrcode": "^1.5.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "dev.snapforge.app",
+    "productName": "SnapForge",
+    "copyright": "Copyright 2026 Xinren Chen",
+    "directories": {
+      "output": "dist-app"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "lang/**/*",
+      "licenses/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "models/ocr",
+        "to": "models/ocr"
+      }
+    ],
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Graphics",
+      "icon": "assets/logo_256.png",
+      "synopsis": "Offline OCR, formula to LaTeX, screenshot and recording"
+    }
+  }
+}

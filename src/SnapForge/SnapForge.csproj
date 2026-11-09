@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Platform Condition="'$(Platform)'=='' Or '$(Platform)'=='AnyCPU'">x64</Platform>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <NoWarn>WFAC010</NoWarn>
+    <ApplicationIcon>Assets\snapforge.ico</ApplicationIcon>
+    <AssemblyName>BestSnap</AssemblyName>
+    <AssemblyTitle>BestSnap</AssemblyTitle>
+    <RootNamespace>SnapForge</RootNamespace>
+    <Version>1.1.1</Version>
+    <Product>BestSnap</Product>
+    <Description>BestSnap</Description>
+    <Company>Xinren Chen</Company>
+    <Copyright>Copyright 2026 Xinren Chen</Copyright>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+      <!-- publish: ReadyToRun (+~180 KB, faster startup), no pdb/xml from packages -->
+    <PublishReadyToRun Condition="'$(RuntimeIdentifier)'!=''">true</PublishReadyToRun>
+    <CopyDebugSymbolFilesFromPackages>false</CopyDebugSymbolFilesFromPackages>
+    <CopyDocumentationFilesFromPackages>false</CopyDocumentationFilesFromPackages>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\logo_*.png" />
+    <Resource Include="Assets\snapforge.ico" />
+    <EmbeddedResource Include="Lang\*.json" LogicalName="lang.%(Filename).json" />
+    <EmbeddedResource Include="Assets\snapforge.ico" LogicalName="SnapForge.snapforge.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ScreenRecorderLib" Version="6.6.0" />
+    <!-- Core decoder only (no image bindings); fed raw BGRA bytes. -->
+    <PackageReference Include="ZXing.Net" Version="0.16.9" />
+    <!-- LaTeX preview in the formula result window (MIT) -->
+    <PackageReference Include="WpfMath" Version="2.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SnapForge.Abstractions\SnapForge.Abstractions.csproj" />
+  </ItemGroup>
+  <!-- Single-exe (build.ps1): files in $(EmbedRuntimeDir) are embedded as rt/... and extracted at runtime by EmbeddedRuntime.
+       Dedicated item list so LogicalName slash-normalization never batches WPF's BestSnap.g.resources (MSB4096).
+       Type=Non-Resx is required for CoreCompile (_CoreCompileResourceInputs). -->
+  <ItemGroup Condition="'$(EmbedRuntimeDir)'!=''">
+    <SnapForgeRuntimeFile Include="$(EmbedRuntimeDir)\**\*">
+      <LogicalName>rt/$([System.String]::Copy('%(RecursiveDir)').Replace('\', '/'))%(Filename)%(Extension)</LogicalName>
+      <WithCulture>false</WithCulture>
+      <Type>Non-Resx</Type>
+    </SnapForgeRuntimeFile>
+    <EmbeddedResource Include="@(SnapForgeRuntimeFile)" />
+  </ItemGroup>
+  <Target Name="TrimPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)'=='.pdb' or '%(Extension)'=='.xml'" />
+      <!-- embedded mode: drop them from publish (they ride inside the exe) -->
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'$(EmbedRuntimeDir)'!='' and ('%(Filename)'=='ScreenRecorderLib' or '%(Filename)'=='Ijwhost')" />
+      <!-- plain mode: mixed-mode assembly must stay beside the exe -->
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'$(EmbedRuntimeDir)'=='' and ('%(Filename)'=='ScreenRecorderLib' or '%(Filename)'=='Ijwhost')" ExcludeFromSingleFile="true" />
+    </ItemGroup>
+  </Target>
+</Project>

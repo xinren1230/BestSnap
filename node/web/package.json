@@ -1,0 +1,26 @@
+{
+  "name": "snapforge-web",
+  "version": "1.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "prepare-models": "node scripts/prepare-models.mjs",
+    "dev": "node scripts/prepare-models.mjs && vite",
+    "build": "node scripts/prepare-models.mjs && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "node scripts/prepare-models.mjs && vite build && playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@zxing/library": "^0.21.3",
+    "katex": "^0.16.21",
+    "onnxruntime-web": "1.20.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/katex": "^0.16.7",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}
