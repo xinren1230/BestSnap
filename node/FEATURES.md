@@ -1,4 +1,4 @@
-# SnapForge Node.js 版功能对照
+# BestSnap Node.js 版功能对照
 
 对照对象：本仓库 `src/` 下的 Windows WPF/.NET 8 实现。  
 Node 版目录：`node/`（Electron + TypeScript + 无头 CLI）。目标环境：Ubuntu/Debian x64，X11，普通桌面机。
@@ -36,11 +36,11 @@ Node 版目录：`node/`（Electron + TypeScript + 无头 CLI）。目标环境�
 | 水印文字/PNG、Auto 对比度、九宫格、平铺≤80、拖动 | 完整 | 完整 | 布局数学与 C# `WatermarkMath` 一致；自动应用在复制/保存路径可关 |
 | 输出 PNG/JPEG/BMP/GIF/TIFF/单页 PDF | 完整 | 完整 | 自写单页 JPEG PDF；BMP 为 24-bit 写入 |
 | 文件名模板 `{n}{yyyy}…` + 计数器 | 完整 | 完整 | |
-| 设置原子保存 + bak | 完整 | 完整 | `~/.config/SnapForge/settings.json` |
+| 设置原子保存 + bak | 完整 | 完整 | `~/.config/BestSnap/settings.json`（首次启动从 `~/.config/SnapForge` 迁移） |
 | **OCR PP-OCRv4 det+rec ONNX** | 完整 | 完整 | `onnxruntime-node` 1.20.1，同一套 RapidOCR 导出模型；检测/识别/CTC/版面/中英空格规则从 C# 移植 |
 | OCR 自动 / 仅内置 / Windows OCR | 完整 | 替代 | **Windows.Media.Ocr 在 Linux 不存在**。仅内置 PaddleOCR（等同设置里强制「内置」） |
 | OCR 版面（阅读顺序、行合并、段落、折行、CJK↔拉丁、全角标点、CTC 词隙） | 完整 | 完整 | `ocr-text.ts` / `ocr-layout.ts`，单测与 C# 对齐 |
-| 公式 → LaTeX pix2text-mfr | 完整 | 完整 | 官方 Hugging Face + SHA-256；优先 `models/pix2text-mfr`，否则 `~/.local/share/SnapForge/models/pix2text-mfr` |
+| 公式 → LaTeX pix2text-mfr | 完整 | 完整 | 官方 Hugging Face + SHA-256；优先 `models/pix2text-mfr`，否则 `~/.local/share/BestSnap/models/pix2text-mfr`（旧 `~/.local/share/SnapForge` 会迁过来） |
 | 公式在线：OpenAI 兼容 / Mathpix | 完整 | 完整 | 密钥存在 settings.json（0600），无 DPAPI |
 | 公式预览 | WpfMath | 替代 | 结果窗用 KaTeX 渲染 `$…$` / `$$…$$` / 原始 LaTeX |
 | 翻译 DeepL / Azure / LibreTranslate | 完整 | 完整 | 点按钮才联网；默认关闭 |
@@ -58,13 +58,13 @@ Node 版目录：`node/`（Electron + TypeScript + 无头 CLI）。目标环境�
 | 屏幕放大镜 2–16× | 完整 | 部分 | 覆盖层缩放；未做独立置顶跟随窗的每一帧位图拷贝 |
 | 屏幕标尺 | 完整 | 部分 | 入口保留；物理像素刻度简化 |
 | 钉在桌面 | 完整 | 完整 | 无边框置顶窗 |
-| 历史面板 | 完整 | 完整 | `~/.config/SnapForge/history` |
+| 历史面板 | 完整 | 完整 | `~/.config/BestSnap/history` |
 | 定时截图 | 完整 | 完整 | |
 | 拼接长图 | 完整 | 完整 | |
 | 图片对比（并排/叠加/差异） | 完整 | 部分 | 并排；叠加透明度与差异高亮未做满 |
 | 上传 folder / FTP / WebDAV | 完整 | 完整 | curl；密码明文存在 0600 的 settings（无 DPAPI） |
 | 邮件/打印 | 未做 | 未做 | 与 C# 相同 |
-| 开机启动 | HKCU Run | 替代 | `~/.config/autostart/snapforge.desktop` |
+| 开机启动 | HKCU Run | 替代 | `~/.config/autostart/bestsnap.desktop`（会从 `snapforge.desktop` 迁移） |
 | i18n zh/en/de/ja/ko/fr/es + zh-TW | 完整 | 完整 | 复用 `lang/*.json` |
 | CLI | 完整 | 完整 | 见 README；另提供子命令 `ocr/latex/qr/capture/record` |
 | 命名管道转发到已运行实例 | 完整 | 部分 | Electron 单实例二次启动会亮工具栏；无头 CLI 总是独立进程（便于测试） |

@@ -40,7 +40,7 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Unit tests
-        run: dotnet test src/SnapForge.Tests/SnapForge.Tests.csproj -c Release --nologo
+        run: dotnet test src/BestSnap.Tests/BestSnap.Tests.csproj -c Release --nologo
 
       - name: Package with build.ps1
         shell: pwsh

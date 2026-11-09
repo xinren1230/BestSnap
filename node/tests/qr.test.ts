@@ -12,5 +12,5 @@ test("QR e2e decodes example.com payload", async () => {
   const hits = await decodeCodes(fs.readFileSync(img));
   console.log("QR hits", hits);
   assert.ok(hits.length >= 1, "no codes");
-  assert.ok(hits.some((h) => h.text.includes("example.com/snapforge")), JSON.stringify(hits));
+  assert.ok(hits.some((h) => h.text.includes("example.com/bestsnap")), JSON.stringify(hits));
 });

@@ -1,4 +1,4 @@
-/** Port of SnapForge.Plugins.OcrLayout — reading order, line merge, paragraphs, wrap-join. */
+/** Port of BestSnap.Plugins.OcrLayout — reading order, line merge, paragraphs, wrap-join. */
 
 import { isCjk, isCjkPunct } from "./ocr-text.js";
 

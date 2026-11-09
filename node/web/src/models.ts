@@ -2,6 +2,7 @@ import { FORMULA_FILES, OCR_FILES } from "@core/model-catalog.ts";
 
 export type ProgressFn = (p: { file: string; loaded: number; total: number; fraction: number }) => void;
 
+/** LEGACY MIGRATION: Cache API bucket name from the SnapForge web app. Renaming would re-download ~120MB. */
 const CACHE = "snapforge-models-v1";
 
 function base(): string {

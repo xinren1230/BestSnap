@@ -1,4 +1,4 @@
-/** Port of SnapForge.Plugins.OcrText — CJK/Latin spacing, CTC word gaps, post-process. */
+/** Port of BestSnap.Plugins.OcrText — CJK/Latin spacing, CTC word gaps, post-process. */
 
 const LETTER_DIGIT = /(?<=[A-Za-z]{4,})(?=\d{2,})|(?<=\d{2,})(?=[A-Za-z]{4,})/g;
 

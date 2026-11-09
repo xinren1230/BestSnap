@@ -4,8 +4,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-OUT="${SNAPFORGE_DEMO_OUT:-$ROOT/demo/snapforge-linux-demo.mp4}"
-ART="${SNAPFORGE_DEMO_ARTIFACT:-/opt/cursor/artifacts/snapforge-linux-demo.mp4}"
+OUT="${BESTSNAP_DEMO_OUT:-$ROOT/demo/bestsnap-linux-demo.mp4}"
+ART="${BESTSNAP_DEMO_ARTIFACT:-/opt/cursor/artifacts/bestsnap-linux-demo.mp4}"
 mkdir -p "$(dirname "$OUT")"
 mkdir -p "$(dirname "$ART")" 2>/dev/null || true
 
@@ -14,17 +14,17 @@ node scripts/copy-static.mjs
 node scripts/generate-fixtures.mjs
 bash scripts/download-models.sh
 
-pkill -f "/SnapForge/node/node_modules/electron/dist/electron" >/dev/null 2>&1 || true
-pkill -f "/SnapForge/node/node_modules/.bin/electron" >/dev/null 2>&1 || true
-pkill -f "/SnapForge/node/dist/electron/worker.js" >/dev/null 2>&1 || true
+pkill -f "/BestSnap/node/node_modules/electron/dist/electron" >/dev/null 2>&1 || true
+pkill -f "/BestSnap/node/node_modules/.bin/electron" >/dev/null 2>&1 || true
+pkill -f "/BestSnap/node/dist/electron/worker.js" >/dev/null 2>&1 || true
 sleep 1
 
-DISPLAY_NUM="${SNAPFORGE_DEMO_DISPLAY:-:97}"
+DISPLAY_NUM="${BESTSNAP_DEMO_DISPLAY:-:97}"
 NEED_XVFB=0
 if ! xdpyinfo -display "$DISPLAY_NUM" >/dev/null 2>&1; then
   NEED_XVFB=1
-  Xvfb "$DISPLAY_NUM" -screen 0 1920x1080x24 -ac +extension RANDR -nolisten tcp >/tmp/snapforge-demo-xvfb.log 2>&1 &
-  echo $! > /tmp/snapforge-demo-xvfb.pid
+  Xvfb "$DISPLAY_NUM" -screen 0 1920x1080x24 -ac +extension RANDR -nolisten tcp >/tmp/bestsnap-demo-xvfb.log 2>&1 &
+  echo $! > /tmp/bestsnap-demo-xvfb.pid
   for _ in 1 2 3 4 5 6 7 8; do
     xdpyinfo -display "$DISPLAY_NUM" >/dev/null 2>&1 && break
     sleep 0.25
@@ -35,18 +35,18 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export ELECTRON_OZONE_PLATFORM_HINT=x11
 export ELECTRON_ENABLE_LOGGING=1
 # Isolated settings/history so the demo does not touch a personal profile.
-export SNAPFORGE_DATA="${TMPDIR:-/tmp}/snapforge-demo-data"
-rm -rf "$SNAPFORGE_DATA"
-mkdir -p "$SNAPFORGE_DATA"
+export BESTSNAP_DATA="${TMPDIR:-/tmp}/bestsnap-demo-data"
+rm -rf "$BESTSNAP_DATA"
+mkdir -p "$BESTSNAP_DATA"
 xsetroot -solid "#3d4a63" >/dev/null 2>&1 || true
 xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
 
-PROFILE="${TMPDIR:-/tmp}/snapforge-demo-profile"
+PROFILE="${TMPDIR:-/tmp}/bestsnap-demo-profile"
 rm -rf "$PROFILE"
 mkdir -p "$PROFILE"
 ELECTRON_BIN="$ROOT/node_modules/electron/dist/electron"
 "$ELECTRON_BIN" "$ROOT" --demo --no-sandbox --disable-gpu --user-data-dir="$PROFILE" \
-  >/tmp/snapforge-demo-electron.log 2>&1 &
+  >/tmp/bestsnap-demo-electron.log 2>&1 &
 EPID=$!
 
 # Wait for the live-demo control port (toolbar + demo page are up) before recording
@@ -58,7 +58,7 @@ for i in $(seq 1 40); do
   fi
   if ! kill -0 "$EPID" 2>/dev/null; then
     echo "electron exited before demo server" >&2
-    cat /tmp/snapforge-demo-electron.log >&2 || true
+    cat /tmp/bestsnap-demo-electron.log >&2 || true
     exit 1
   fi
   sleep 0.25
@@ -68,14 +68,14 @@ sleep 0.6
 RAW="$(mktemp --suffix=.mkv)"
 ffmpeg -y -thread_queue_size 512 -f x11grab -video_size 1920x1080 -framerate 25 -draw_mouse 1 \
   -i "${DISPLAY}.0" -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -an "$RAW" \
-  >/tmp/snapforge-demo-ffmpeg.log 2>&1 &
+  >/tmp/bestsnap-demo-ffmpeg.log 2>&1 &
 FPID=$!
 sleep 0.4
 
 DRIVE_STATUS=0
-node "$ROOT/demo/drive.mjs" >/tmp/snapforge-demo-drive.log 2>&1 || DRIVE_STATUS=$?
+node "$ROOT/demo/drive.mjs" >/tmp/bestsnap-demo-drive.log 2>&1 || DRIVE_STATUS=$?
 echo "drive exit=$DRIVE_STATUS"
-cat /tmp/snapforge-demo-drive.log || true
+cat /tmp/bestsnap-demo-drive.log || true
 
 # Stop the camera first so Electron quitting does not leave a black tail.
 kill -INT "$FPID" >/dev/null 2>&1 || true
@@ -86,12 +86,12 @@ kill "$EPID" >/dev/null 2>&1 || true
 wait "$EPID" 2>/dev/null || true
 
 ffmpeg -y -i "$RAW" -vf "scale=1920:1080" -c:v libx264 -crf 22 -preset medium -pix_fmt yuv420p \
-  -movflags +faststart -an "$OUT" >/tmp/snapforge-demo-encode.log 2>&1
+  -movflags +faststart -an "$OUT" >/tmp/bestsnap-demo-encode.log 2>&1
 rm -f "$RAW"
 
-if [[ "$NEED_XVFB" = 1 && -f /tmp/snapforge-demo-xvfb.pid ]]; then
-  kill "$(cat /tmp/snapforge-demo-xvfb.pid)" >/dev/null 2>&1 || true
-  rm -f /tmp/snapforge-demo-xvfb.pid
+if [[ "$NEED_XVFB" = 1 && -f /tmp/bestsnap-demo-xvfb.pid ]]; then
+  kill "$(cat /tmp/bestsnap-demo-xvfb.pid)" >/dev/null 2>&1 || true
+  rm -f /tmp/bestsnap-demo-xvfb.pid
 fi
 
 BYTES="$(stat -c%s "$OUT" 2>/dev/null || echo 0)"
@@ -109,15 +109,15 @@ PY
 then
   echo "ERROR: demo MP4 duration/size out of range (duration=${DUR}s size=${BYTES})." >&2
   echo "----- electron log -----" >&2
-  cat /tmp/snapforge-demo-electron.log >&2 || true
+  cat /tmp/bestsnap-demo-electron.log >&2 || true
   echo "----- drive log -----" >&2
-  cat /tmp/snapforge-demo-drive.log >&2 || true
+  cat /tmp/bestsnap-demo-drive.log >&2 || true
   exit 1
 fi
 
 # Frame check: no >4s freeze, and the left demo cards keep ink (not blank white).
 STILL_DIR="$(mktemp -d --suffix=-sf-demo-frames)"
-ffmpeg -y -i "$OUT" -vf "fps=2,scale=320:180" -q:v 5 "$STILL_DIR/f%04d.jpg" >/tmp/snapforge-demo-still.log 2>&1 || true
+ffmpeg -y -i "$OUT" -vf "fps=2,scale=320:180" -q:v 5 "$STILL_DIR/f%04d.jpg" >/tmp/bestsnap-demo-still.log 2>&1 || true
 python3 - "$STILL_DIR" "$OUT" <<'PY' || { echo "ERROR: demo frame check failed" >&2; exit 1; }
 import hashlib, os, struct, subprocess, sys
 d, src = sys.argv[1], sys.argv[2]

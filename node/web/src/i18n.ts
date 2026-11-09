@@ -1,7 +1,7 @@
 export type Lang = "zh-CN" | "en";
 
 const zh = {
-  title: "SnapForge 网页版",
+  title: "BestSnap 网页版",
   region: "框选区域",
   window: "窗口/标签页",
   full: "屏幕",
@@ -33,7 +33,7 @@ const zh = {
 };
 
 const en: typeof zh = {
-  title: "SnapForge Web",
+  title: "BestSnap Web",
   region: "Region",
   window: "Window / tab",
   full: "Screen",

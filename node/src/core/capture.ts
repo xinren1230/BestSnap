@@ -56,7 +56,7 @@ async function ffmpegGrab(args: string[], outFile: string): Promise<Buffer> {
 
 export async function captureFull(includeCursor = false): Promise<Buffer> {
   const { w, h } = screenSize();
-  const tmp = path.join(os.tmpdir(), `snapforge-full-${process.pid}.png`);
+  const tmp = path.join(os.tmpdir(), `bestsnap-full-${process.pid}.png`);
   return ffmpegGrab(
     ["-f", "x11grab", "-show_region", "0", "-draw_mouse", includeCursor ? "1" : "0", "-video_size", `${w}x${h}`, "-i", `${display()}.0+0,0`, "-frames:v", "1"],
     tmp,
@@ -65,7 +65,7 @@ export async function captureFull(includeCursor = false): Promise<Buffer> {
 
 export async function captureRect(r: Rect, includeCursor = false): Promise<Buffer> {
   if (r.w < 1 || r.h < 1) throw new Error("region width/height must be > 0");
-  const tmp = path.join(os.tmpdir(), `snapforge-rect-${process.pid}.png`);
+  const tmp = path.join(os.tmpdir(), `bestsnap-rect-${process.pid}.png`);
   return ffmpegGrab(
     [
       "-f",

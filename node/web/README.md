@@ -5,7 +5,7 @@
 
 模型文件不进 git（公式 encoder 约 84 MB）。构建时从本仓库已有的 PP-OCRv4 ONNX 拷贝，并从 [Hugging Face pix2text-mfr](https://huggingface.co/breezedeus/pix2text-mfr)（MIT）拉取公式模型，校验 SHA-256。
 
-横版演示（1920×1080，约 56 秒）在 [`public/snapforge-linux-demo.mp4`](public/snapforge-linux-demo.mp4)，页面顶部介绍区用 `<video controls playsinline>` 嵌入。
+横版演示（1920×1080，约 56 秒）在 [`public/bestsnap-linux-demo.mp4`](public/bestsnap-linux-demo.mp4)，页面顶部介绍区用 `<video controls playsinline>` 嵌入。
 
 ```bash
 cd node/web

@@ -1,6 +1,6 @@
 # BestSnap（Node.js / Linux）
 
-Windows 版 BestSnap 的 Linux 移植（源码内部仍沿用 SnapForge 作为工程名）：离线中英文 OCR（PP-OCRv4）、公式 → LaTeX（pix2text-mfr）、截图、标注编辑、二维码、录屏。  
+Windows 版 BestSnap 的 Linux 移植：离线中英文 OCR（PP-OCRv4）、公式 → LaTeX（pix2text-mfr）、截图、标注编辑、二维码、录屏。  
 界面用 Electron，引擎和 CLI 是普通 Node.js（`onnxruntime-node`），可在无显示器的机器上跑识别。
 
 许可证 [Apache-2.0](../LICENSE)。第三方组件保留原许可，见 [licenses/THIRD-PARTY-NOTICES.txt](licenses/THIRD-PARTY-NOTICES.txt)。功能对照：[FEATURES.md](FEATURES.md)。
@@ -48,8 +48,8 @@ npx tsx src/cli/index.ts record --duration 5 --out rec.mp4
 bash scripts/download-models.sh
 ```
 
-模型缓存目录：`~/.local/share/SnapForge/models/pix2text-mfr`。  
-设置与历史：`~/.config/SnapForge/`。
+模型缓存目录：`~/.local/share/BestSnap/models/pix2text-mfr`。  
+设置与历史：`~/.config/BestSnap/`。首次启动会把旧版 `~/.local/share/SnapForge` 与 `~/.config/SnapForge` 迁到 BestSnap 目录。
 
 ### AppImage
 
@@ -67,7 +67,7 @@ bash scripts/build-appimage.sh
 
 `web/` 是浏览器版源码，目前不提供在线托管，只在本机构建运行。截图用 `getDisplayMedia` / 粘贴 / 拖放 / 上传；OCR 与公式用 `onnxruntime-web` 在本地 WASM 推理；历史进 IndexedDB。
 
-横版演示视频（1920×1080，约 56 秒）嵌在页面介绍区：[`web/public/snapforge-linux-demo.mp4`](web/public/snapforge-linux-demo.mp4)。
+横版演示视频（1920×1080，约 56 秒）嵌在页面介绍区：[`web/public/bestsnap-linux-demo.mp4`](web/public/bestsnap-linux-demo.mp4)。
 
 ```bash
 cd node/web
@@ -101,4 +101,4 @@ bash scripts/smoke-electron.sh          # Xvfb 下启动并截一张图
 bash demo/run-demo.sh                   # 录 1920×1080 演示 MP4
 ```
 
-演示脚本说明见 [demo/README.md](demo/README.md)。成品横版 MP4：[`web/public/snapforge-linux-demo.mp4`](web/public/snapforge-linux-demo.mp4)。
+演示脚本说明见 [demo/README.md](demo/README.md)。成品横版 MP4：[`web/public/bestsnap-linux-demo.mp4`](web/public/bestsnap-linux-demo.mp4)。

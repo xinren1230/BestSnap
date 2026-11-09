@@ -112,11 +112,11 @@ test("PostProcess_InsertsCjkLatinAndCommaSpacesWithoutPositions", () => {
 });
 
 test("PostProcess_NoSpaceAroundFullwidthPunct", () => {
-  assert.equal(postProcess("第一段： SnapForge 是"), "第一段：SnapForge 是");
+  assert.equal(postProcess("第一段： BestSnap 是"), "第一段：BestSnap 是");
   assert.equal(postProcess("60 FPS 。"), "60 FPS。");
   assert.equal(postProcess("12345 。"), "12345。");
   assert.equal(postProcess("“ 白字黑底 ”"), "“白字黑底”");
-  assert.equal(postProcess("第一段：SnapForge"), "第一段：SnapForge");
+  assert.equal(postProcess("第一段：BestSnap"), "第一段：BestSnap");
 });
 
 test("PostProcess_KeepsMp4", () => {

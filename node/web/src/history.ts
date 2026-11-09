@@ -1,3 +1,4 @@
+/** LEGACY MIGRATION: IndexedDB name from the SnapForge web app. Renaming would drop existing history. */
 const DB = "snapforge-web";
 const STORE = "history";
 

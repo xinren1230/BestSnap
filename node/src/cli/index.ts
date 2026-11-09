@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Headless SnapForge CLI for Linux.
+ * Headless BestSnap CLI for Linux.
  *
- *   snapforge ocr <img> [-o out.txt]
- *   snapforge latex <img> [-o out.tex]
- *   snapforge qr <img>
- *   snapforge capture --full|--window|--region x,y,w,h [-o out.png]
- *   snapforge record --duration s --out file.mp4 [--full|--region x,y,w,h]
+ *   bestsnap ocr <img> [-o out.txt]
+ *   bestsnap latex <img> [-o out.tex]
+ *   bestsnap qr <img>
+ *   bestsnap capture --full|--window|--region x,y,w,h [-o out.png]
+ *   bestsnap record --duration s --out file.mp4 [--full|--region x,y,w,h]
  *
  * Also accepts the Windows-style flags (--ocr, --latex, --fullscreen, --save, --image, …).
  */
@@ -25,20 +25,20 @@ import { loadSettings } from "../core/settings.js";
 export const Exit = { Ok: 0, Error: 1, BadArgs: 2, Cancelled: 3, OcrUnavailable: 4, Busy: 5 } as const;
 
 function usage(): string {
-  return `SnapForge (Node.js / Linux)
+  return `BestSnap (Node.js / Linux)
 
 Usage:
-  snapforge ocr <image> [-o out.txt]
-  snapforge latex <image> [-o out.tex]
-  snapforge qr <image>
-  snapforge capture --full|--window|--region x,y,w,h [-o out.png] [--cursor]
-  snapforge record --duration <s> --out <file.mp4|file.gif> [--full|--region x,y,w,h] [--cursor]
-  snapforge --help
+  bestsnap ocr <image> [-o out.txt]
+  bestsnap latex <image> [-o out.tex]
+  bestsnap qr <image>
+  bestsnap capture --full|--window|--region x,y,w,h [-o out.png] [--cursor]
+  bestsnap record --duration <s> --out <file.mp4|file.gif> [--full|--region x,y,w,h] [--cursor]
+  bestsnap --help
 
 Windows-compatible flags (run against a file or the screen):
-  snapforge --image file.png --ocr out.txt [--latex out.tex]
-  snapforge --fullscreen|--window|--region x,y,w,h [--save path] [--ocr out.txt] [--latex out.tex]
-  snapforge --record --duration s --out file.mp4 [--fullscreen|--region x,y,w,h]
+  bestsnap --image file.png --ocr out.txt [--latex out.tex]
+  bestsnap --fullscreen|--window|--region x,y,w,h [--save path] [--ocr out.txt] [--latex out.tex]
+  bestsnap --record --duration s --out file.mp4 [--fullscreen|--region x,y,w,h]
 `;
 }
 
@@ -246,7 +246,7 @@ async function windowsStyle(args: string[]): Promise<number> {
     if (!image) die(Exit.BadArgs, "--image needs a path");
     png = await readImage(image);
   } else {
-    const tmp = path.join(process.cwd(), `.snapforge-cli-${process.pid}.png`);
+    const tmp = path.join(process.cwd(), `.bestsnap-cli-${process.pid}.png`);
     const kind = source === "window" ? "window" : source === "region" ? "region" : "full";
     await captureToFile(kind, tmp, { region, cursor: S.includeCursor });
     png = fs.readFileSync(tmp);

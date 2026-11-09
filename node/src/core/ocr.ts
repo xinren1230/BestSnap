@@ -1,7 +1,7 @@
 /**
  * Built-in offline Chinese + English OCR: PaddleOCR PP-OCRv4 mobile det + rec
  * (Apache-2.0, ONNX exports from RapidOCR), run with onnxruntime-node.
- * Port of SnapForge.Ocr.PaddleOcr.
+ * Port of BestSnap.Ocr.PaddleOcr.
  */
 import fs from "node:fs";
 import os from "node:os";

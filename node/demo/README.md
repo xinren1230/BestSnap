@@ -25,7 +25,7 @@
 
 字幕条是独立的始终置顶窗（`view=caption`），不是假 UI 走查。
 
-不含个人账号；二维码内容为 `https://example.com/snapforge`。
+不含个人账号；二维码内容为 `https://example.com/bestsnap`。
 
 ## 复现
 
@@ -33,11 +33,11 @@
 cd node
 bash scripts/setup.sh          # 若尚未安装依赖与模型
 bash demo/run-demo.sh
-# 输出：demo/snapforge-linux-demo.mp4
+# 输出：demo/bestsnap-linux-demo.mp4
 ```
 
 可选环境变量：
 
-- `SNAPFORGE_DEMO_OUT` 输出路径（默认 `demo/snapforge-linux-demo.mp4`）
-- `SNAPFORGE_DEMO_ARTIFACT` 额外拷贝路径（默认 `/opt/cursor/artifacts/snapforge-linux-demo.mp4`）
-- `SNAPFORGE_DEMO_DISPLAY` 已有 X 服务器时复用（默认 `:97`）
+- `BESTSNAP_DEMO_OUT` 输出路径（默认 `demo/bestsnap-linux-demo.mp4`）
+- `BESTSNAP_DEMO_ARTIFACT` 额外拷贝路径（默认 `/opt/cursor/artifacts/bestsnap-linux-demo.mp4`）
+- `BESTSNAP_DEMO_DISPLAY` 已有 X 服务器时复用（默认 `:97`）

@@ -50,8 +50,8 @@ test("Format_ThenPostProcess_KeepsCjkLatinRules", () => {
 
 test("Format_NoSpaceAroundFullwidthPunctOnSameLine", () => {
   assert.equal(
-    postProcess(formatOcrLayout([B("第一段：", 0, 0, 50, 16), B("SnapForge", 52, 0, 120, 16), B("FPS", 130, 0, 160, 16), B("。", 162, 0, 178, 16)])),
-    "第一段：SnapForge FPS。",
+    postProcess(formatOcrLayout([B("第一段：", 0, 0, 50, 16), B("BestSnap", 52, 0, 120, 16), B("FPS", 130, 0, 160, 16), B("。", 162, 0, 178, 16)])),
+    "第一段：BestSnap FPS。",
   );
 });
 

@@ -1,4 +1,4 @@
-/** Port of SnapForge.Plugins.WatermarkMath. */
+/** Port of BestSnap.Plugins.WatermarkMath. */
 
 export const MAX_STAMPS = 80;
 export const LIGHT_THRESHOLD = 0.55;

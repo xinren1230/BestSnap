@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { ensureDir, userDataDir } from "./paths.js";
 
+/** LEGACY MIGRATION: previous XDG autostart desktop file name. */
+const LEGACY_AUTOSTART_DESKTOP = "snapforge.desktop";
+const AUTOSTART_DESKTOP = "bestsnap.desktop";
+
 export type AfterCaptureAction = "OpenEditor" | "CopyToClipboard" | "AutoSave" | "AutoSaveAndClipboard" | "QuickBar";
 export type FormulaEngine = "Local" | "OpenAI" | "Mathpix";
 export type TranslateProvider = "None" | "DeepL" | "Azure" | "LibreTranslate";
@@ -94,7 +98,7 @@ export const DEFAULT_HOTKEYS: HotkeyBinding[] = [
 
 export function defaults(): AppSettings {
   return {
-    saveFolder: path.join(os.homedir(), "Pictures", "SnapForge"),
+    saveFolder: path.join(os.homedir(), "Pictures", "BestSnap"),
     fileNameTemplate: "Snap_{yyyy}-{MM}-{dd}_{HH}{mm}{ss}_{n}",
     defaultFormat: "png",
     jpegQuality: 90,
@@ -122,7 +126,7 @@ export function defaults(): AppSettings {
       fps: 30,
       quality: 70,
       countdown: 3,
-      saveFolder: path.join(os.homedir(), "Videos", "SnapForge"),
+      saveFolder: path.join(os.homedir(), "Videos", "BestSnap"),
       format: "Mp4",
       gifFps: 10,
       gifMaxWidth: 960,
@@ -133,7 +137,7 @@ export function defaults(): AppSettings {
     watermark: {
       autoApply: false,
       isImage: false,
-      text: "SnapForge",
+      text: "BestSnap",
       imagePath: "",
       fontFamily: "Noto Sans CJK SC",
       fontSize: 28,
@@ -191,17 +195,32 @@ export function saveSettings(s: AppSettings): void {
   fs.renameSync(tmp, p);
 }
 
+export function migrateAutostart(): void {
+  const dir = path.join(os.homedir(), ".config", "autostart");
+  const legacy = path.join(dir, LEGACY_AUTOSTART_DESKTOP);
+  const dest = path.join(dir, AUTOSTART_DESKTOP);
+  try {
+    if (fs.existsSync(legacy) && !fs.existsSync(dest)) fs.renameSync(legacy, dest);
+    else if (fs.existsSync(legacy)) fs.rmSync(legacy, { force: true });
+  } catch {
+    /* ignore */
+  }
+}
+
 export function setAutostart(on: boolean): void {
   const dir = path.join(os.homedir(), ".config", "autostart");
-  const desktop = path.join(dir, "snapforge.desktop");
+  const desktop = path.join(dir, AUTOSTART_DESKTOP);
+  const legacy = path.join(dir, LEGACY_AUTOSTART_DESKTOP);
   if (!on) {
     fs.rmSync(desktop, { force: true });
+    fs.rmSync(legacy, { force: true });
     return;
   }
   ensureDir(dir);
-  const exec = process.env.SNAPFORGE_EXEC || "snapforge-ui";
+  const exec = process.env.BESTSNAP_EXEC || process.env.SNAPFORGE_EXEC || "bestsnap-ui";
   fs.writeFileSync(
     desktop,
-    `[Desktop Entry]\nType=Application\nName=SnapForge\nExec=${exec}\nX-GNOME-Autostart-enabled=true\n`,
+    `[Desktop Entry]\nType=Application\nName=BestSnap\nExec=${exec}\nX-GNOME-Autostart-enabled=true\n`,
   );
+  fs.rmSync(legacy, { force: true });
 }

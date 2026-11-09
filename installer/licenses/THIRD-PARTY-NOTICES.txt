@@ -108,6 +108,6 @@ runtime redistributable components as produced by `dotnet publish
 --self-contained`.
 
 --------------------------------------------------------------------------
-Inno Setup (used only to produce this installer; not part of SnapForge)
+Inno Setup (used only to produce this installer; not part of BestSnap)
 https://jrsoftware.org/isinfo.php
 License: Inno Setup License

@@ -37,8 +37,8 @@ export function resolveFormulaDir(root = appRoot(), local = localAppDataDir()): 
 export function ocrModelDir(root = appRoot()): string {
   const candidates = [
     path.join(root, "models", "ocr"),
-    path.join(root, "..", "src", "SnapForge.Ocr", "models"),
-    process.env.SNAPFORGE_OCR_MODELS ?? "",
+    path.join(root, "..", "src", "BestSnap.Ocr", "models"),
+    process.env.BESTSNAP_OCR_MODELS || process.env.SNAPFORGE_OCR_MODELS || "",
   ].filter(Boolean);
   for (const d of candidates) {
     if (fs.existsSync(path.join(d, "ch_PP-OCRv4_det_infer.onnx")) && fs.existsSync(path.join(d, "ch_PP-OCRv4_rec_infer.onnx"))) return d;

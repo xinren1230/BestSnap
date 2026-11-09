@@ -26,7 +26,7 @@ New-Item -ItemType Directory $rt | Out-Null
 function Get-AppVersion {
     param([string]$Fallback)
     if ($Fallback) { return $Fallback.TrimStart("v") }
-    $csproj = Join-Path $PSScriptRoot "src\SnapForge\SnapForge.csproj"
+    $csproj = Join-Path $PSScriptRoot "src\BestSnap\BestSnap.csproj"
     $text = Get-Content -LiteralPath $csproj -Raw
     if ($text -match "<Version>([^<]+)</Version>") { return $Matches[1].Trim() }
     return "1.1.1"
@@ -114,14 +114,14 @@ $FormulaModels = @(
     @{ Name = "tokenizer.json";     Sha256 = "3e2ab757277d22639bec28c9d7972e352d3d1dba223051fa674002dc5ab64df3"; Size = 39161L }
 )
 
-# 1) OCR / face / webcam plugin (+ WinRT projection) -> rt\plugins\SnapForge.Ocr
-dotnet publish src\SnapForge.Ocr -c $Configuration -r win-x64 --self-contained false -o "$rt\plugins\SnapForge.Ocr"
+# 1) OCR / face / webcam plugin (+ WinRT projection) -> rt\plugins\BestSnap.Ocr
+dotnet publish src\BestSnap.Ocr -c $Configuration -r win-x64 --self-contained false -o "$rt\plugins\BestSnap.Ocr"
 if ($LASTEXITCODE) { throw "plugin publish failed" }
 Get-ChildItem "$rt\plugins" -Recurse -Include *.pdb,*.xml | Remove-Item
-$pluginDir = Join-Path $rt "plugins\SnapForge.Ocr"
+$pluginDir = Join-Path $rt "plugins\BestSnap.Ocr"
 foreach ($n in @(
-    "SnapForge.Ocr.dll",
-    "SnapForge.Ocr.deps.json",
+    "BestSnap.Ocr.dll",
+    "BestSnap.Ocr.deps.json",
     "Microsoft.ML.OnnxRuntime.dll",
     "onnxruntime.dll",
     "models\ch_PP-OCRv4_det_infer.onnx",
@@ -132,13 +132,13 @@ foreach ($n in @(
 }
 
 # 2) normal publish once to harvest the mixed-mode ScreenRecorderLib.dll (+ Ijwhost.dll if the SDK emits one)
-dotnet publish src\SnapForge -c $Configuration -r win-x64 --self-contained false -o "$stage\pass1"
+dotnet publish src\BestSnap -c $Configuration -r win-x64 --self-contained false -o "$stage\pass1"
 if ($LASTEXITCODE) { throw "pass1 publish failed" }
 Copy-Item "$stage\pass1\ScreenRecorderLib.dll" $rt
 if (Test-Path "$stage\pass1\Ijwhost.dll") { Copy-Item "$stage\pass1\Ijwhost.dll" $rt }
 
 # 3) final single-file publish with everything embedded
-dotnet publish src\SnapForge -c $Configuration -r win-x64 --self-contained $sc `
+dotnet publish src\BestSnap -c $Configuration -r win-x64 --self-contained $sc `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=$sc `
   -p:EmbedRuntimeDir="$rt" -o publish
 if ($LASTEXITCODE) { throw "final publish failed" }
@@ -192,7 +192,7 @@ Linux/macOS cannot compile this installer (ISCC is Windows-only).
 "@
 }
 
-$iss = Join-Path $PSScriptRoot "installer\snapforge.iss"
+$iss = Join-Path $PSScriptRoot "installer\bestsnap.iss"
 $outDir = Join-Path $PSScriptRoot "dist"
 $payloadArg = ($payload -replace "\\", "/")
 $outArg = ($outDir -replace "\\", "/")

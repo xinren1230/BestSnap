@@ -289,7 +289,7 @@ async function editor() {
     else if (a.kind === "pen" && a.pts) { ctx.beginPath(); a.pts.forEach((p,i) => i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)); ctx.stroke(); }
     else if (a.kind === "spotlight") { ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0,0,cv.width,cv.height); ctx.clearRect(x,y,w,h); ctx.drawImage(img,x,y,w,h,x,y,w,h); ctx.strokeRect(x,y,w,h); }
     else if (a.kind === "redact") { ctx.fillStyle = "#111"; ctx.fillRect(x,y,w,h); }
-    else if (a.kind === "wm") { ctx.globalAlpha = (a.opacity??35)/100; ctx.font = `${a.size||28}px sans-serif`; ctx.translate(a.x, a.y); ctx.rotate((a.rot||-30)*Math.PI/180); ctx.fillText(a.text||"SnapForge", 0, 0); }
+    else if (a.kind === "wm") { ctx.globalAlpha = (a.opacity??35)/100; ctx.font = `${a.size||28}px sans-serif`; ctx.translate(a.x, a.y); ctx.rotate((a.rot||-30)*Math.PI/180); ctx.fillText(a.text||"BestSnap", 0, 0); }
     ctx.restore();
   }
   function bounds(a) {
@@ -409,7 +409,7 @@ async function settingsView() {
   document.documentElement.style.background = "#f6f6f7";
   const s = await sf.invoke("settings:get");
   app.className = "page";
-  app.innerHTML = `<h1>SnapForge 设置</h1>
+  app.innerHTML = `<h1>BestSnap 设置</h1>
     <h2>截图</h2>
     <div class="grid">
       <label>保存目录</label><input id="saveFolder" value="${s.saveFolder||""}" />
@@ -577,10 +577,10 @@ async function demoView() {
   function html(s) { stage.innerHTML = s; }
   const root = await sf.invoke("root");
 
-  title("SnapForge for Linux");
+  title("BestSnap for Linux");
   html(`<div style="text-align:center">
     <img src="./assets/logo_128.png" width="128" height="128" alt="" />
-    <h1 style="font-size:56px;margin:16px 0 8px">SnapForge</h1>
+    <h1 style="font-size:56px;margin:16px 0 8px">BestSnap</h1>
     <p style="font-size:24px;color:#c4b5fd">离线 OCR · 公式 → LaTeX · 截图 / 标注 / 录屏</p>
     <p style="color:#8e8e93;margin-top:24px">Apache-2.0 · Node.js + Electron · Ubuntu / X11</p>
   </div>`);
@@ -717,7 +717,7 @@ async function demoView() {
   </div>`);
   await sleep(9000);
 
-  title("SnapForge  ·  开源 Apache-2.0");
+  title("BestSnap  ·  开源 Apache-2.0");
   html(`<div style="text-align:center">
     <p style="font-size:32px;margin:0 0 12px">npm start 启动界面  ·  npx tsx src/cli/index.ts 命令行</p>
     <p style="font-size:20px;color:#a1a1aa">ocr / latex / qr / capture / record</p>
@@ -729,7 +729,7 @@ async function demoView() {
 function captionView() {
   document.documentElement.style.background = "#1a1030";
   document.body.style.background = "#1a1030";
-  app.innerHTML = `<div id="cap" style="height:56px;display:flex;align-items:center;padding:0 28px;font-size:22px;color:#f4f4f5;letter-spacing:.04em;border-top:3px solid #7c3aed;">SnapForge for Linux</div>`;
+  app.innerHTML = `<div id="cap" style="height:56px;display:flex;align-items:center;padding:0 28px;font-size:22px;color:#f4f4f5;letter-spacing:.04em;border-top:3px solid #7c3aed;">BestSnap for Linux</div>`;
   const cap = document.getElementById("cap");
   sf.on("caption", (t) => { cap.textContent = String(t ?? ""); });
 }
