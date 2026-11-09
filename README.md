@@ -2,7 +2,7 @@
 
 **最好用的截图神器，OCR、LaTeX公式识别一键搞定**
 
-[🌐 在线网页版 / Try it online](https://xinren1230.github.io/BestSnap/) · [⬇️ 下载 / Download](https://github.com/xinren1230/BestSnap/releases) · [🎬 演示视频 / Demo video](docs/demo.mp4)
+[🌐 在线网页版 / Try it online](https://xinren1230.github.io/BestSnap/) · [⬇️ 下载安装包 / Download installer](https://github.com/xinren1230/BestSnap/releases/latest/download/BestSnap-Setup-1.1.1.exe) · [🎬 演示视频 / Demo video](docs/demo.mp4)
 
 [![BestSnap 演示 / demo](docs/demo.gif)](docs/demo.mp4)
 
@@ -30,7 +30,10 @@
 
 ### 下载
 
-- **Windows**（Windows 10/11 x64）：到 [Releases](https://github.com/xinren1230/BestSnap/releases) 下载 `BestSnap-Setup-<版本>.exe`，一键安装，所有依赖（运行时、OCR 和公式模型）已打包在内。
+- **Windows**（Windows 10/11 x64）当前版本 **1.1.1**：
+  - [⬇️ 直接下载安装包 BestSnap-Setup-1.1.1.exe](https://github.com/xinren1230/BestSnap/releases/latest/download/BestSnap-Setup-1.1.1.exe)
+  - 或打开 [Releases 页面](https://github.com/xinren1230/BestSnap/releases/latest) 查看校验文件与说明
+  - 一键安装，所有依赖（运行时、OCR 和公式模型）已打包在内，已用 Certum 代码签名
 - **Linux / macOS**：使用[在线网页版](https://xinren1230.github.io/BestSnap/)。
 
 ### 隐私
@@ -65,7 +68,10 @@ Upload, paste or drop an image, or capture a screen, window or tab right in the 
 
 ### Download
 
-- **Windows** (10/11, x64): get `BestSnap-Setup-<version>.exe` from [Releases](https://github.com/xinren1230/BestSnap/releases). It is a one-click installer with every dependency (runtime, OCR and formula models) bundled, code-signed, with a SHA256 checksum on the release page.
+- **Windows** (10/11, x64), current version **1.1.1**:
+  - [⬇️ Direct download BestSnap-Setup-1.1.1.exe](https://github.com/xinren1230/BestSnap/releases/latest/download/BestSnap-Setup-1.1.1.exe)
+  - Or open the [Releases page](https://github.com/xinren1230/BestSnap/releases/latest) for the checksum and notes
+  - One-click installer with every dependency (runtime, OCR and formula models) bundled, Certum code-signed, SHA256 on the release page
 - **Linux / macOS**: use the [web version](https://xinren1230.github.io/BestSnap/).
 
 ### Privacy
