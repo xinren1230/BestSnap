@@ -1,6 +1,6 @@
 /**
  * Offline image → LaTeX with pix2text-mfr (breezedeus/pix2text-mfr, MIT).
- * Port of SnapForge.Ocr.Pix2TextFormulaRecognizer + FormulaService download/hash.
+ * Port of BestSnap.Ocr.Pix2TextFormulaRecognizer + FormulaService download/hash.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -58,7 +58,7 @@ function downloadFile(url: string, destPart: string, onBytes: (n: number) => voi
     const follow = (u: string, hops: number) => {
       if (hops > 8) return reject(new Error("too many redirects"));
       http
-        .get(u, { headers: { "User-Agent": "SnapForge-node/1.0" } }, (res) => {
+        .get(u, { headers: { "User-Agent": "BestSnap-node/1.0" } }, (res) => {
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             res.resume();
             follow(new URL(res.headers.location, u).href, hops + 1);

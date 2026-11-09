@@ -37,7 +37,7 @@ function copyIfPresent(src, dest) {
 async function download(url, dest, expectedSha, expectedSize) {
   if (existsSync(dest) && statSync(dest).size === expectedSize) return;
   console.log("download", url);
-  const res = await fetch(url, { headers: { "User-Agent": "SnapForge-web/1.0" }, redirect: "follow" });
+  const res = await fetch(url, { headers: { "User-Agent": "BestSnap-web/1.0" }, redirect: "follow" });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
   ensure(dirname(dest));
   const tmp = dest + ".part";
@@ -66,8 +66,8 @@ for (const name of ["ch_PP-OCRv4_det_infer.onnx", "ch_PP-OCRv4_rec_infer.onnx"])
 
 const formulaSrcDirs = [
   join(nodeRoot, "models", "pix2text-mfr"),
-  join(process.env.HOME || "", ".local/share/SnapForge/models/pix2text-mfr"),
-  process.env.SNAPFORGE_FORMULA_DIR || "",
+  join(process.env.HOME || "", ".local/share/BestSnap/models/pix2text-mfr"),
+  process.env.BESTSNAP_FORMULA_DIR || "",
 ].filter(Boolean);
 
 let formulaReady = FORMULA.every((f) => existsSync(join(formulaDest, f.name)) && statSync(join(formulaDest, f.name)).size === f.size);

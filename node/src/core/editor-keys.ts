@@ -1,4 +1,4 @@
-/** Port of SnapForge.Plugins.EditorKeys. */
+/** Port of BestSnap.Plugins.EditorKeys. */
 
 const TYPING = new Set([
   "TextBox",

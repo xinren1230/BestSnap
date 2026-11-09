@@ -52,8 +52,8 @@ function ui() {
         preload="metadata"
         width="1920"
         height="1080"
-        poster="${import.meta.env.BASE_URL}snapforge-linux-demo.jpg"
-        src="${import.meta.env.BASE_URL}snapforge-linux-demo.mp4"
+        poster="${import.meta.env.BASE_URL}bestsnap-linux-demo.jpg"
+        src="${import.meta.env.BASE_URL}bestsnap-linux-demo.mp4"
       ></video>
       <p class="caption">${s.demoCaption}</p>
     </div>
@@ -337,7 +337,7 @@ async function toggleRecord() {
     const blob = new Blob(recChunks, { type: "video/webm" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "snapforge.webm";
+    a.download = "bestsnap.webm";
     a.click();
     btn.classList.remove("rec-on");
     setProgress(t().recSaved);
@@ -431,7 +431,7 @@ async function copyPng() {
 function downloadPng() {
   const a = document.createElement("a");
   a.href = canvas().toDataURL("image/png");
-  a.download = "snapforge.png";
+  a.download = "bestsnap.png";
   a.click();
 }
 

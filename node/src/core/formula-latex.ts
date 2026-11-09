@@ -1,4 +1,4 @@
-/** Port of SnapForge.Plugins.FormulaLatex.Tidy. */
+/** Port of BestSnap.Plugins.FormulaLatex.Tidy. */
 
 export function tidyLatex(s: string | null | undefined): string {
   let sb = "";

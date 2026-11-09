@@ -11,21 +11,21 @@ BestSnap：用 C# / WPF / .NET 8 从零编写的独立 Windows 工具。对外�
 
 ## 编译与运行
 ```powershell
-cd SnapForge
+cd BestSnap
 dotnet build -c Release            # 平台已默认为 x64（ScreenRecorderLib 不支持 AnyCPU）
-dotnet run --project src/SnapForge -c Release
+dotnet run --project src/BestSnap -c Release
 # 发布单目录可执行文件
-dotnet publish src/SnapForge -c Release -r win-x64 --self-contained false -o publish
+dotnet publish src/BestSnap -c Release -r win-x64 --self-contained false -o publish
 ```
-也可直接用 Visual Studio 2022 打开 `SnapForge.sln`，平台选 x64。
-在 Linux/macOS 上只能做编译检查：`dotnet build -p:EnableWindowsTargeting=true`。一键安装包（Inno Setup）只能在 Windows 上构建：先 `winget install --id JRSoftware.InnoSetup -e`，再 `.\build.ps1 -Installer`。脚本在 `installer\snapforge.iss`。
+也可直接用 Visual Studio 2022 打开 `BestSnap.sln`，平台选 x64。
+在 Linux/macOS 上只能做编译检查：`dotnet build -p:EnableWindowsTargeting=true`。一键安装包（Inno Setup）只能在 Windows 上构建：先 `winget install --id JRSoftware.InnoSetup -e`，再 `.\build.ps1 -Installer`。脚本在 `installer\bestsnap.iss`。
 
 启动后会在屏幕顶部显示**浮动截图工具栏**（无边框、置顶、可拖动左侧 Logo 移动，位置自动记忆），同时驻留系统托盘：右键托盘图标打开菜单（含“显示/隐藏工具栏”），左键托盘图标显示/还原工具栏。工具栏最右侧为最小化到托盘；设置中可关闭“启动时显示截图工具栏”。
 
 主工具栏按钮：矩形区域、窗口/对象、全屏、录屏、**更多**、最小化。OCR、公式 → LaTeX、延时、手绘、滚动、取色、放大镜、标尺、历史、设置等在 **更多** 菜单（热键仍可用）。图标使用 Windows 自带的 Segoe Fluent Icons / Segoe MDL2 Assets 字体。
 
 ## Logo
-原创 Logo（渐变圆角方块 + 白色取景框 + 镜头 + 黄色星芒），源文件 `src/SnapForge/Assets/snapforge_logo.svg`，由 Python cairosvg/Pillow 生成 16–256 PNG 和多尺寸 `snapforge.ico`，用作 exe 图标、托盘图标（嵌入资源）、所有窗口图标和工具栏 Logo。
+原创 Logo（渐变圆角方块 + 白色取景框 + 镜头 + 黄色星芒），源文件 `src/BestSnap/Assets/bestsnap_logo.svg`，由 Python cairosvg/Pillow 生成 16–256 PNG 和多尺寸 `bestsnap.ico`，用作 exe 图标、托盘图标（嵌入资源）、所有窗口图标和工具栏 Logo。
 
 ## 默认全局热键（可在“设置”中修改，保存到 JSON）
 | 功能 | 热键 |
@@ -53,7 +53,7 @@ dotnet publish src/SnapForge -c Release -r win-x64 --self-contained false -o pub
 
 ## 单文件发布
 ```powershell
-dotnet publish src/SnapForge -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
+dotnet publish src/BestSnap -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
 ```
 ScreenRecorderLib.dll 和 Ijwhost.dll 是混合模式程序集，csproj 中的 `ExcludeSRL` 目标会把它们留在 exe 旁边（不打包进单文件）。
 
@@ -96,7 +96,7 @@ ScreenRecorderLib.dll 和 Ijwhost.dll 是混合模式程序集，csproj 中的 `
 
 ## 代码结构
 ```
-src/SnapForge/
+src/BestSnap/
   App.xaml(.cs)            启动入口（无主窗口，托盘常驻）
   Models/AppSettings.cs    设置模型
   ViewModels/              EditorDocument(图片+撤销栈)、SettingsViewModel
@@ -111,7 +111,7 @@ src/SnapForge/
 - 运行时只支持 Windows。Linux/macOS 仅可做 `dotnet build -p:EnableWindowsTargeting=true` 编译检查。
 - 截图基于 GDI（CopyFromScreen），受保护内容（DRM 视频）会是黑色。
 - OCR 没有表格/多栏还原；公式识别质量随裁剪和所选引擎变化。内置 OCR 离线；安装包已含 pix2text-mfr，绿色包或缺模型时才下载；翻译和在线公式会把内容发到你配置的服务。
-- 安装包不在 `{app}` 旁放置 `plugins\`。OCR 插件完整嵌在单文件 exe 里。残缺的 side-by-side `plugins\SnapForge.Ocr` 会挡住内嵌副本，导致公式识别找不到 OnnxRuntime。
+- 安装包不在 `{app}` 旁放置 `plugins\`。OCR 插件完整嵌在单文件 exe 里。残缺的 side-by-side `plugins\BestSnap.Ocr` 会挡住内嵌副本，导致公式识别找不到 OnnxRuntime。
 
 ## 日志与设置补充
 - 未处理异常会弹窗提示并写入 `%AppData%\BestSnap\logs\yyyy-MM-dd.log`。
@@ -126,9 +126,9 @@ src/SnapForge/
 
 ## Batch 3
 - History panel, pin-to-desktop, editor: step numbers / text font, size, background / pen / spotlight / eyedropper.
-- OCR + video trimmer are an optional plugin (`src/SnapForge.Ocr`, net8.0-windows10.0.19041.0). Publish:
-  `dotnet publish src/SnapForge.Ocr -c Release -r win-x64 --self-contained false -o publish/plugins/SnapForge.Ocr`
-  and put the output in `<exe dir>\plugins\SnapForge.Ocr\` (SnapForge.Ocr.dll + Microsoft.Windows.SDK.NET.dll + WinRT.Runtime.dll + .deps.json).
+- OCR + video trimmer are an optional plugin (`src/BestSnap.Ocr`, net8.0-windows10.0.19041.0). Publish:
+  `dotnet publish src/BestSnap.Ocr -c Release -r win-x64 --self-contained false -o publish/plugins/BestSnap.Ocr`
+  and put the output in `<exe dir>\plugins\BestSnap.Ocr\` (BestSnap.Ocr.dll + Microsoft.Windows.SDK.NET.dll + WinRT.Runtime.dll + .deps.json).
 - Upload targets: save-to-folder, FTP/FTPS, WebDAV; passwords DPAPI (CurrentUser).
 - Recorder: region border (excluded from capture), GIF (no audio), trim preview (needs plugin), separate mic/system volume.
 - Startup warmup, physical-px toolbar position, press-to-record hotkey box with conflict check, HKCU Run autostart, tray left-click option, zh/en UI (restart required).
@@ -149,7 +149,7 @@ BestSnap.exe --record --duration s --out file.mp4|file.gif [--fullscreen | --win
 - `--save` with an existing folder or trailing `\` uses the file-name template; otherwise the given file name (extension adjusted to `--format`). Relative paths are relative to the caller's current directory.
 - No output option → the running app's normal after-capture action (or clipboard if BestSnap was not running).
 - `--ocr` needs the OCR plugin; text is written as UTF-8.
-- If BestSnap is already running, the command is forwarded via the named pipe `SnapForge_Cli_Pipe_v1` (current user only; same name as the previous SnapForge build) and executed there; the caller waits and gets the exit code. Otherwise a temporary instance runs the command and exits.
+- If BestSnap is already running, the command is forwarded via the named pipe `BestSnap_Cli_Pipe_v1` (current user only; same name as the previous BestSnap build) and executed there; the caller waits and gets the exit code. Otherwise a temporary instance runs the command and exits.
 - Exit codes: 0 ok, 1 error, 2 bad arguments, 3 cancelled (Esc / no window), 4 OCR plugin missing, 5 another CLI command is still running.
 - BestSnap is a GUI exe: in cmd use `start /wait BestSnap.exe --fullscreen --save C:\shots\ & echo %errorlevel%`; in PowerShell `(Start-Process BestSnap.exe -ArgumentList '--fullscreen','--clipboard' -Wait -PassThru).ExitCode`.
 
@@ -163,7 +163,7 @@ BestSnap.exe --record --duration s --out file.mp4|file.gif [--fullscreen | --win
 
 ## Languages (i18n)
 
-UI strings live in JSON files (`src/SnapForge/Lang/*.json`, embedded in the exe): zh-CN, zh-TW, en, de, ja, ko, fr, es.
+UI strings live in JSON files (`src/BestSnap/Lang/*.json`, embedded in the exe): zh-CN, zh-TW, en, de, ja, ko, fr, es.
 Format: `{ "_name": "Deutsch", "_code": "de", "strings": { "<Chinese source text>": "<translation>" } }`.
 To add or override a language, put `<code>.json` in `<exe dir>\lang\`; it shows up in Settings and the tray's language submenu.
 "Auto" follows the Windows UI language (zh-TW/HK/MO → 繁體中文). Missing keys fall back to English, then to the source text.

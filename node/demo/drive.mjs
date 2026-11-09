@@ -2,7 +2,7 @@
 /** Drive the real Electron toolbar + windows with xdotool. Used by run-demo.sh. */
 import { execFileSync } from "node:child_process";
 
-const BASE = process.env.SNAPFORGE_DEMO_CTL || "http://127.0.0.1:38471";
+const BASE = process.env.BESTSNAP_DEMO_CTL || "http://127.0.0.1:38471";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const notes = [];
 
@@ -80,8 +80,8 @@ function closeNamed(part) {
 
 async function toolbar() {
   const all = await layout();
-  const tb = all.SnapForge;
-  if (!tb) throw new Error("toolbar window SnapForge missing; have " + Object.keys(all));
+  const tb = all.BestSnap;
+  if (!tb) throw new Error("toolbar window BestSnap missing; have " + Object.keys(all));
   return tb;
 }
 
@@ -157,7 +157,7 @@ async function waitResultReady(timeout = 18000) {
 async function showResultThenClose(holdMs = 2200, timeout = 18000) {
   await waitResultReady(timeout);
   await wander(holdMs, 1180, 300, 160, 90);
-  closeNamed("SnapForge Result");
+  closeNamed("BestSnap Result");
   await sleep(800);
 }
 
@@ -187,8 +187,8 @@ async function step(name, fn) {
 }
 
 await waitServer();
-await waitWin("SnapForge", 12000);
-await caption("SnapForge  ·  浮动工具栏");
+await waitWin("BestSnap", 12000);
+await caption("BestSnap  ·  浮动工具栏");
 for (const id of ["btn-region", "btn-window", "btn-full", "btn-record", "more"]) {
   try {
     const tb = await toolbar();
@@ -234,7 +234,7 @@ await step("annotate", async () => {
   await hoverClick(pix.sx, pix.sy, 550);
   await drag(cv.sx - cv.w * 0.22, cv.sy + 4, cv.sx + cv.w * 0.28, cv.sy + cv.h * 0.3);
   await sleep(2000);
-  closeNamed("SnapForge Editor");
+  closeNamed("BestSnap Editor");
   await sleep(1400);
 });
 
@@ -272,11 +272,11 @@ await step("history", async () => {
   await clickMoreThen("menu-history");
   await waitWin("History", 8000);
   await wander(4200, 1180, 280, 180, 100);
-  closeNamed("SnapForge History");
+  closeNamed("BestSnap History");
   await sleep(600);
 });
 
-await caption("SnapForge  ·  Apache-2.0  · npm start");
+await caption("BestSnap  ·  Apache-2.0  · npm start");
 await sleep(2500);
 console.log("demo-notes:");
 for (const n of notes) console.log(" -", n);

@@ -19,8 +19,8 @@ cd "$ROOT"
 
 echo "==> copy PP-OCRv4 ONNX if missing"
 mkdir -p "$ROOT/models/ocr"
-if [[ ! -f "$ROOT/models/ocr/ch_PP-OCRv4_det_infer.onnx" && -f "$REPO/src/SnapForge.Ocr/models/ch_PP-OCRv4_det_infer.onnx" ]]; then
-  cp "$REPO/src/SnapForge.Ocr/models/"*.onnx "$ROOT/models/ocr/"
+if [[ ! -f "$ROOT/models/ocr/ch_PP-OCRv4_det_infer.onnx" && -f "$REPO/src/BestSnap.Ocr/models/ch_PP-OCRv4_det_infer.onnx" ]]; then
+  cp "$REPO/src/BestSnap.Ocr/models/"*.onnx "$ROOT/models/ocr/"
 fi
 
 echo "==> npm ci (or npm install)"

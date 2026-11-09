@@ -15,7 +15,7 @@ test("upload OCR fixture → Chinese/English text", async ({ page }) => {
   await page.locator("#more").click();
   await page.getByTestId("ocr").click();
   await expect(page.getByTestId("result")).toContainText(/Windows/, { timeout: 180_000 });
-  await expect(page.getByTestId("result")).toContainText(/11|升级|系统|Hello|World|SnapForge/);
+  await expect(page.getByTestId("result")).toContainText(/11|升级|系统|Hello|World|BestSnap/);
 });
 
 test("upload formula fixture → LaTeX", async ({ page }) => {
@@ -33,7 +33,7 @@ test("upload QR fixture → example.com URL", async ({ page }) => {
   await expect(page.locator("#cv")).toBeVisible({ timeout: 15_000 });
   await page.locator("#more").click();
   await page.getByTestId("qr").click();
-  await expect(page.getByTestId("result")).toContainText(/example.com\/snapforge/, { timeout: 30_000 });
-  await page.screenshot({ path: "/opt/cursor/artifacts/snapforge-web.png", fullPage: true });
-  await page.screenshot({ path: "test-results/snapforge-web.png", fullPage: true });
+  await expect(page.getByTestId("result")).toContainText(/example.com\/bestsnap/, { timeout: 30_000 });
+  await page.screenshot({ path: "/opt/cursor/artifacts/bestsnap-web.png", fullPage: true });
+  await page.screenshot({ path: "test-results/bestsnap-web.png", fullPage: true });
 });

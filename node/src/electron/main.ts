@@ -9,10 +9,17 @@ import { captureFull, captureRect, captureWindow, listWindows, screenSize } from
 import { autoSave, saveImage } from "../core/exporter.js";
 import { addHistory, historyFile, loadHistory } from "../core/history.js";
 import { blurRegion, pixelate, sizeOf, stitch } from "../core/image-ops.js";
-import { loadSettings, saveSettings, setAutostart, type AppSettings } from "../core/settings.js";
+import { loadSettings, saveSettings, setAutostart, migrateAutostart, type AppSettings } from "../core/settings.js";
 import { Recorder } from "../core/recorder.js";
 import { uploadFile } from "../core/uploaders.js";
-import { appRoot } from "../core/paths.js";
+import { appRoot, ensureMigrated, userDataDir } from "../core/paths.js";
+
+ensureMigrated();
+try {
+  app.setPath("userData", userDataDir());
+} catch {
+  /* app.setPath is only valid before ready; ignore if already started */
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const renderer = path.join(here, "renderer", "index.html");
@@ -50,7 +57,7 @@ function spawnWorker(): void {
   const args = entry.endsWith(".ts") ? ["--import", "tsx", entry] : [entry];
   worker = spawn(execPath, args, {
     stdio: ["pipe", "pipe", "inherit"],
-    env: { ...process.env, SNAPFORGE_ROOT: appRoot() },
+    env: { ...process.env, BESTSNAP_ROOT: appRoot() },
   });
   let buf = "";
   worker.stdout?.on("data", (d: Buffer) => {
@@ -122,7 +129,7 @@ function createToolbar(): void {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
-    title: "SnapForge",
+    title: "BestSnap",
   });
   toolbar.loadFile(renderer, { query: { view: "toolbar" } });
   const { width } = screen.getPrimaryDisplay().workAreaSize;
@@ -171,7 +178,7 @@ function createTray(): void {
       { type: "separator" },
       { label: "退出", click: () => app.quit() },
     ]);
-  tray.setToolTip("SnapForge");
+  tray.setToolTip("BestSnap");
   tray.setContextMenu(menu());
   tray.on("click", toggleToolbar);
 }
@@ -207,19 +214,19 @@ function placeView(w: BrowserWindow, view: string, avoid?: ScreenRect): void {
 
 function openView(view: string, extra: Record<string, string> = {}, avoid?: ScreenRect): BrowserWindow {
   const titles: Record<string, string> = {
-    editor: "SnapForge Editor",
-    history: "SnapForge History",
-    result: "SnapForge Result",
-    settings: "SnapForge Settings",
-    stitch: "SnapForge Stitch",
-    compare: "SnapForge Compare",
+    editor: "BestSnap Editor",
+    history: "BestSnap History",
+    result: "BestSnap Result",
+    settings: "BestSnap Settings",
+    stitch: "BestSnap Stitch",
+    compare: "BestSnap Compare",
   };
   const w = frameless({
     width: view === "editor" ? 1100 : view === "result" ? 700 : 820,
     height: view === "editor" ? 680 : view === "result" ? 500 : 560,
     frame: true,
     backgroundColor: "#f6f6f7",
-    title: titles[view] || "SnapForge",
+    title: titles[view] || "BestSnap",
   });
   const q = new URLSearchParams({ view, ...extra }).toString();
   w.loadFile(renderer, { query: Object.fromEntries(new URLSearchParams(q)) });
@@ -352,7 +359,7 @@ function ensureOverlay(): BrowserWindow {
     skipTaskbar: true,
     fullscreen: false,
     paintWhenInitiallyHidden: true,
-    title: "SnapForge Capture",
+    title: "BestSnap Capture",
   });
   overlayReady = new Promise((resolve) => {
     overlay!.webContents.once("did-finish-load", () => resolve());
@@ -578,7 +585,7 @@ async function toggleRecord(): Promise<void> {
     toolbar?.webContents.send("recording", { on: false });
     return;
   }
-  const folder = settings.recording.saveFolder || path.join(os.homedir(), "Videos", "SnapForge");
+  const folder = settings.recording.saveFolder || path.join(os.homedir(), "Videos", "BestSnap");
   fs.mkdirSync(folder, { recursive: true });
   const ext = settings.recording.format === "Gif" ? ".gif" : ".mp4";
   const out = path.join(folder, `Rec_${Date.now()}${ext}`);
@@ -642,7 +649,7 @@ function createCaptionBar(): void {
     skipTaskbar: true,
     resizable: false,
     focusable: false,
-    title: "SnapForge Caption",
+    title: "BestSnap Caption",
   });
   captionWin.setAlwaysOnTop(true, "status");
   captionWin.loadFile(renderer, { query: { view: "caption" } });
@@ -662,7 +669,7 @@ function createBackdrop(): void {
     backgroundColor: "#eef0f4",
     alwaysOnTop: false,
     skipTaskbar: true,
-    title: "SnapForge Demo Page",
+    title: "BestSnap Demo Page",
     webPreferences: { webSecurity: false },
   });
   const page = path.join(appRoot(), "demo", "page.html");
@@ -744,7 +751,7 @@ function startDemoServer(): void {
       setTimeout(() => app.quit(), 200);
       return;
     }
-    res.end("snapforge-demo");
+    res.end("bestsnap-demo");
   });
   demoServer.listen(38471, "127.0.0.1");
 }
@@ -755,7 +762,7 @@ function prepareLiveDemo(): void {
   settings.includeCursor = true;
   settings.historyEnabled = true;
   settings.captureDelaySeconds = 0;
-  settings.recording.saveFolder = path.join(os.tmpdir(), "snapforge-demo-rec");
+  settings.recording.saveFolder = path.join(os.tmpdir(), "bestsnap-demo-rec");
   settings.recording.microphone = false;
   fs.mkdirSync(settings.recording.saveFolder, { recursive: true });
   createBackdrop();
@@ -769,7 +776,8 @@ process.on("uncaughtException", (e) => console.error("uncaught", e));
 process.on("unhandledRejection", (e) => console.error("unhandled", e));
 
 app.whenReady().then(async () => {
-  console.log("SnapForge ready demo=", isDemo, "argv=", process.argv.join(" "));
+  console.log("BestSnap ready demo=", isDemo, "argv=", process.argv.join(" "));
+  migrateAutostart();
   spawnWorker();
   if (isDemo) {
     prepareLiveDemo();

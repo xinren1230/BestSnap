@@ -1,9 +1,9 @@
 THIRD-PARTY NOTICES (Node.js / Linux port)
 ==========================================
 
-SnapForge itself is Apache-2.0 (see LICENSE and NOTICE in the repository root).
+BestSnap itself is Apache-2.0 (see LICENSE and NOTICE in the repository root).
 The following components are used or redistributed under their original licenses.
-This file is not a license grant for SnapForge.
+This file is not a license grant for BestSnap.
 
 --------------------------------------------------------------------------
 PaddleOCR (PP-OCRv4 detection / recognition ONNX)
@@ -27,7 +27,7 @@ Official files:
   decoder_model.onnx
   tokenizer.json
 Source: https://huggingface.co/breezedeus/pix2text-mfr/resolve/main/<file>
-SHA-256 values match the Windows port (see src/SnapForge.Abstractions/BundledModels.cs).
+SHA-256 values match the Windows port (see src/BestSnap.Abstractions/BundledModels.cs).
 
 --------------------------------------------------------------------------
 ONNX Runtime (onnxruntime-node / onnxruntime-web)

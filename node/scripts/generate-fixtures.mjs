@@ -32,7 +32,7 @@ function drawTextPng(out, w, h, lines) {
 drawTextPng(path.join(demo, "ocr.png"), 1100, 320, [
   { text: "升级到 Windows 11 系统", size: 40, y: 48 },
   { text: "Hello World, open source tool", size: 36, y: 120, font: latin },
-  { text: "SnapForge 离线 OCR 与公式识别", size: 32, y: 200 },
+  { text: "BestSnap 离线 OCR 与公式识别", size: 32, y: 200 },
 ]);
 fs.copyFileSync(path.join(demo, "ocr.png"), path.join(tests, "ocr.png"));
 
@@ -40,7 +40,7 @@ drawTextPng(path.join(demo, "formula.png"), 900, 220, [
   { text: "x = (-b +/- sqrt(b^2 - 4ac)) / 2a", size: 40, y: 90, font: latin, x: 40 },
 ]);
 
-const qrPng = await QRCode.toBuffer("https://example.com/snapforge", { type: "png", width: 320, margin: 2 });
+const qrPng = await QRCode.toBuffer("https://example.com/bestsnap", { type: "png", width: 320, margin: 2 });
 fs.writeFileSync(path.join(demo, "qr.png"), qrPng);
 fs.writeFileSync(path.join(tests, "qr.png"), qrPng);
 

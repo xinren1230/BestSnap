@@ -42,13 +42,13 @@
 2. 在 PowerShell 中，于仓库根目录运行：
 
 ```powershell
-dotnet test src\SnapForge.Tests\SnapForge.Tests.csproj -c Release   # 单元测试
+dotnet test src\BestSnap.Tests\BestSnap.Tests.csproj -c Release   # 单元测试
 .\build.ps1                  # 生成 publish\BestSnap.exe（需 .NET 8 Desktop Runtime）
 .\build.ps1 -SelfContained   # 免运行时的单文件版本
 .\build.ps1 -Installer       # 生成 dist\BestSnap-Setup-<版本>.exe 一键安装包
 ```
 
-可选 `-SignThumbprint <证书指纹>` 做代码签名；仓库里不含任何证书或密钥。源码工程内部仍沿用 SnapForge 作为项目名。
+可选 `-SignThumbprint <证书指纹>` 做代码签名；仓库里不含任何证书或密钥。
 
 **Linux 版**（`node/`，Node.js 20+ / Electron，Ubuntu / Debian x64，X11）：
 
@@ -101,13 +101,13 @@ Everything runs locally: the Windows app works offline on your PC. **Your screen
 2. In PowerShell at the repository root:
 
 ```powershell
-dotnet test src\SnapForge.Tests\SnapForge.Tests.csproj -c Release   # unit tests
+dotnet test src\BestSnap.Tests\BestSnap.Tests.csproj -c Release   # unit tests
 .\build.ps1                  # publish\BestSnap.exe (needs the .NET 8 Desktop Runtime)
 .\build.ps1 -SelfContained   # single-file build, no runtime needed
 .\build.ps1 -Installer       # dist\BestSnap-Setup-<version>.exe one-click installer
 ```
 
-Optional `-SignThumbprint <cert thumbprint>` signs the output; no certificates or keys are stored in the repo. Project files internally still use the SnapForge name.
+Optional `-SignThumbprint <cert thumbprint>` signs the output; no certificates or keys are stored in the repo.
 
 **Linux** (`node/`, Node.js 20+ / Electron, Ubuntu / Debian x64, X11):
 

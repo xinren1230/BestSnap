@@ -1,4 +1,4 @@
-/** Port of SnapForge.Plugins.EraserMath. */
+/** Port of BestSnap.Plugins.EraserMath. */
 
 export function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const abx = bx - ax,

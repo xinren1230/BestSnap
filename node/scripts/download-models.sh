@@ -2,7 +2,14 @@
 # Download pix2text-mfr from the official Hugging Face repo and verify SHA-256.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="${SNAPFORGE_LOCAL:-${XDG_DATA_HOME:-$HOME/.local/share}/SnapForge}/models/pix2text-mfr"
+# LEGACY MIGRATION: previous on-disk data dir ~/.local/share/SnapForge (and SNAPFORGE_LOCAL).
+NEW_LOCAL="${XDG_DATA_HOME:-$HOME/.local/share}/BestSnap"
+LEGACY_LOCAL="${XDG_DATA_HOME:-$HOME/.local/share}/SnapForge"
+if [[ -z "${BESTSNAP_LOCAL:-${SNAPFORGE_LOCAL:-}}" && -d "$LEGACY_LOCAL" && ! -d "$NEW_LOCAL" ]]; then
+  mkdir -p "$(dirname "$NEW_LOCAL")"
+  mv "$LEGACY_LOCAL" "$NEW_LOCAL"
+fi
+DEST="${BESTSNAP_LOCAL:-${SNAPFORGE_LOCAL:-$NEW_LOCAL}}/models/pix2text-mfr"
 BUNDLED="$ROOT/models/pix2text-mfr"
 REPO="https://huggingface.co/breezedeus/pix2text-mfr/resolve/main"
 
@@ -46,7 +53,7 @@ for f in encoder_model.onnx decoder_model.onnx tokenizer.json; do
   fi
   echo "Downloading $f …"
   tmp="$path.part"
-  curl -L --fail --retry 4 --retry-delay 4 -A "SnapForge-node/1.0" -o "$tmp" "$REPO/$f"
+  curl -L --fail --retry 4 --retry-delay 4 -A "BestSnap-node/1.0" -o "$tmp" "$REPO/$f"
   got="$(sha256sum "$tmp" | awk '{print $1}')"
   if [[ "$got" != "${SHA[$f]}" ]]; then
     rm -f "$tmp"

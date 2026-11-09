@@ -17,5 +17,5 @@ test("OCR e2e on mixed Chinese/English fixture", { timeout: 120_000 }, async () 
   assert.ok(text.length > 0, "empty OCR");
   assert.match(text, /Windows/);
   assert.match(text, /11/);
-  assert.ok(/升级|系统|Hello|World|SnapForge|截图|OCR/.test(text), "expected keywords missing: " + text);
+  assert.ok(/升级|系统|Hello|World|BestSnap|截图|OCR/.test(text), "expected keywords missing: " + text);
 });
