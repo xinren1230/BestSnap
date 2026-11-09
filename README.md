@@ -30,7 +30,7 @@
 
 ### 下载
 
-- **Windows**（Windows 10/11 x64）：到 [Releases](https://github.com/xinren1230/BestSnap/releases) 下载 `BestSnap-Setup-<版本>.exe`，一键安装，所有依赖（运行时、OCR 和公式模型）已打包在内。安装包已进行代码签名，可用发布页的 SHA256 校验。
+- **Windows**（Windows 10/11 x64）：到 [Releases](https://github.com/xinren1230/BestSnap/releases) 下载 `BestSnap-Setup-<版本>.exe`，一键安装，所有依赖（运行时、OCR 和公式模型）已打包在内。
 - **Linux / macOS**：使用[在线网页版](https://xinren1230.github.io/BestSnap/)。
 
 ### 隐私
