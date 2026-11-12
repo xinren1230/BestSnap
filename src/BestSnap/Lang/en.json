@@ -584,10 +584,12 @@
   "删除此模型": "Delete this model",
   "删除已下载的模型": "Delete downloaded models",
   "默认": "default",
+  "自动（推荐）": "Auto (recommended)",
+  "实时字幕：": "Live captions: ",
   "正在下载 {0}…": "Downloading {0}…",
   "正在下载 {0}… {1}%": "Downloading {0}… {1}%",
   "已删除模型。": "Model deleted.",
   "确定删除已下载的 Whisper 模型吗？": "Delete downloaded Whisper models?",
-  "转写始终在本机用 Whisper 完成，不会上传音频。较大模型更准；medium / large-v3-turbo 提供 q5_0 量化以减小体积。默认 large-v3-turbo。摘要默认用本机抽取；若填写 OpenAI 兼容地址（也可复用公式识别里的 OpenAI 设置），才会把转写文本发到该接口。密钥用 DPAPI 保存。": "Transcription always runs on-device with Whisper; audio is never uploaded. Larger models are more accurate; medium / large-v3-turbo offer q5_0 quantizations to save space. Default is large-v3-turbo. Summaries default to on-device extractive text. If you fill an OpenAI-compatible URL (or reuse the Formula OpenAI settings), transcript text is sent there. Keys are stored with DPAPI."
+  "转写始终在本机用 Whisper 完成，不会上传音频。默认「自动（推荐）」按显卡显存、内存和 CPU 选择模型与 CUDA/Vulkan/CPU。也可手动指定 tiny～large-v3-turbo（含 q5_0）。摘要默认用本机抽取；若填写 OpenAI 兼容地址（也可复用公式识别里的 OpenAI 设置），才会把转写文本发到该接口。密钥用 DPAPI 保存。": "Transcription always runs on-device with Whisper; audio is never uploaded. Default Auto (recommended) picks a model and CUDA/Vulkan/CPU from VRAM, RAM, and CPU cores. You can still choose tiny–large-v3-turbo (including q5_0) manually. Summaries default to on-device extractive text. If you fill an OpenAI-compatible URL (or reuse the Formula OpenAI settings), transcript text is sent there. Keys are stored with DPAPI."
  }
 }

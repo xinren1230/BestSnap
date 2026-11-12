@@ -22,6 +22,7 @@ namespace BestSnap.Views
             s.Chat ??= new ChatSettings();
 
             var model = WhisperUi.ModelCombo(s.WhisperModel);
+            var autoHint = WhisperUi.AutoHint(s.WhisperModel);
             var lang = WhisperUi.LanguageCombo(s.WhisperLanguage);
             var prompt = new TextBox
             {
@@ -32,17 +33,24 @@ namespace BestSnap.Views
             var hint = new TextBlock
             {
                 TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray, FontSize = 11,
-                Text = L.T("转写始终在本机用 Whisper 完成，不会上传音频。较大模型更准；medium / large-v3-turbo 提供 q5_0 量化以减小体积。默认 large-v3-turbo。摘要默认用本机抽取；若填写 OpenAI 兼容地址（也可复用公式识别里的 OpenAI 设置），才会把转写文本发到该接口。密钥用 DPAPI 保存。")
+                Text = L.T("转写始终在本机用 Whisper 完成，不会上传音频。默认「自动（推荐）」按显卡显存、内存和 CPU 选择模型与 CUDA/Vulkan/CPU。也可手动指定 tiny～large-v3-turbo（含 q5_0）。摘要默认用本机抽取；若填写 OpenAI 兼容地址（也可复用公式识别里的 OpenAI 设置），才会把转写文本发到该接口。密钥用 DPAPI 保存。")
             };
             var bar = new ProgressBar { Height = 6, Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed };
             var status = new TextBlock { FontSize = 11, Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap };
             var download = new Button { Content = L.T("下载模型"), Width = 100, Margin = new Thickness(0, 0, 8, 0) };
             var delOne = new Button { Content = L.T("删除此模型"), Width = 100, Margin = new Thickness(0, 0, 8, 0) };
             var delAll = new Button { Content = L.T("删除已下载的模型"), MinWidth = 130 };
-            void Refresh() { WhisperUi.RefreshModelCombo(model, WhisperUi.SelectedModel(model)); }
+            void Refresh()
+            {
+                WhisperUi.RefreshModelCombo(model, WhisperUi.SelectedModel(model));
+                WhisperUi.UpdateAutoHint(autoHint, WhisperUi.SelectedModel(model));
+            }
+            model.SelectionChanged += (o, e) => WhisperUi.UpdateAutoHint(autoHint, WhisperUi.SelectedModel(model));
             download.Click += async (o, e) =>
             {
                 string id = WhisperUi.SelectedModel(model);
+                if (WhisperModels.IsAuto(id))
+                    id = WhisperTranscriber.Resolve(id, live: false).ModelId;
                 download.IsEnabled = delOne.IsEnabled = delAll.IsEnabled = false;
                 bar.Visibility = Visibility.Visible; bar.Value = 0;
                 status.Text = string.Format(L.T("正在下载 {0}…"), id);
@@ -72,6 +80,8 @@ namespace BestSnap.Views
             delOne.Click += (o, e) =>
             {
                 string id = WhisperUi.SelectedModel(model);
+                if (WhisperModels.IsAuto(id))
+                    id = WhisperTranscriber.Resolve(id, live: false).ModelId;
                 WhisperTranscriber.DeleteModel(id);
                 status.Text = L.T("已删除模型。");
                 Refresh();
@@ -99,6 +109,7 @@ namespace BestSnap.Views
                 g.Children.Add(l); g.Children.Add(el);
             }
             Row(L.T("Whisper 模型"), model);
+            Row("", autoHint);
             Row(L.T("转写语言"), lang);
             Row(L.T("提示词 / 词汇（可选）"), prompt);
             Row("", dir);
@@ -143,27 +154,60 @@ namespace BestSnap.Views
         public static void RefreshModelCombo(ComboBox box, string selected)
         {
             selected = WhisperModels.Normalize(selected);
-            var ids = WhisperModels.Ids;
+            var ids = WhisperModels.ChoiceIds;
             box.ItemsSource = ids.Select(ModelLabel).ToList();
             int i = Array.IndexOf(ids, selected);
-            if (i < 0) i = Array.IndexOf(ids, WhisperModels.DefaultId);
-            box.SelectedIndex = i < 0 ? 0 : i;
+            if (i < 0) i = 0;
+            box.SelectedIndex = i;
         }
 
         public static string ModelLabel(string id)
         {
+            if (WhisperModels.IsAuto(id))
+                return L.T("自动（推荐）");
             string s = WhisperModels.Get(id).Label + "  (" + WhisperModels.SizeLabel(id) + ")";
-            if (id == WhisperModels.DefaultId) s += "  " + L.T("默认");
             if (WhisperTranscriber.ModelReady(id)) s += "  " + L.T("已下载");
             return s;
         }
 
         public static string SelectedModel(ComboBox box)
         {
-            var ids = WhisperModels.Ids;
+            var ids = WhisperModels.ChoiceIds;
             int i = box?.SelectedIndex ?? -1;
             if (i >= 0 && i < ids.Length) return ids[i];
             return WhisperModels.DefaultId;
+        }
+
+        public static TextBlock AutoHint(string choice)
+        {
+            var t = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray, FontSize = 11 };
+            UpdateAutoHint(t, choice);
+            return t;
+        }
+
+        public static void UpdateAutoHint(TextBlock t, string choice)
+        {
+            if (t == null) return;
+            if (!WhisperModels.IsAuto(choice))
+            {
+                t.Visibility = Visibility.Collapsed;
+                t.Text = "";
+                return;
+            }
+            t.Visibility = Visibility.Visible;
+            try
+            {
+                var file = WhisperAutoSelect.Resolve(choice, WhisperHardwareProbe.Current, live: false);
+                var live = WhisperAutoSelect.Resolve(choice, WhisperHardwareProbe.Current, live: true);
+                string s = file.Reason;
+                if (!string.Equals(file.ModelId, live.ModelId, StringComparison.Ordinal))
+                    s += "  " + L.T("实时字幕：") + live.ModelId;
+                t.Text = s;
+            }
+            catch (Exception ex)
+            {
+                t.Text = ex.Message;
+            }
         }
 
         public static ComboBox LanguageCombo(string selected)

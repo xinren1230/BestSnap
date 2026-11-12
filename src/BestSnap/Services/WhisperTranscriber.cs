@@ -25,32 +25,74 @@ namespace BestSnap.Services
         static readonly object FactoryGate = new object();
         static WhisperFactory _factory;
         static string _factoryPath;
+        static WhisperBackend _factoryBackend;
+
+        public static WhisperAutoPick LastPick { get; private set; }
 
         public static string ModelDir => AppPaths.WhisperModels;
 
         public static string ModelPath(string id) =>
-            Path.Combine(ModelDir, WhisperModels.FileName(id));
+            Path.Combine(ModelDir, WhisperModels.FileName(WhisperModels.NormalizeWeights(id)));
 
-        public static bool ModelReady(string id) =>
-            WhisperModels.FileLooksComplete(ModelPath(id), WhisperModels.Get(id));
-
-        public static async Task WarmupAsync(string id, IProgress<double> progress, CancellationToken ct)
+        public static bool ModelReady(string id)
         {
-            id = WhisperModels.Normalize(id);
+            if (WhisperModels.IsAuto(id))
+            {
+                var pick = Resolve(id, live: false);
+                return WhisperModels.FileLooksComplete(ModelPath(pick.ModelId), WhisperModels.Get(pick.ModelId));
+            }
+            return WhisperModels.FileLooksComplete(ModelPath(id), WhisperModels.Get(id));
+        }
+
+        public static WhisperAutoPick Resolve(string choice, bool live)
+        {
+            var hw = WhisperHardwareProbe.Current;
+            var pick = WhisperAutoSelect.Resolve(choice, hw, live);
+            LastPick = pick;
+            Logger.Info("Whisper pick " + pick.Reason + (pick.Manual ? " manual" : " auto") + (live ? " live" : " file"));
+            return pick;
+        }
+
+        public static async Task WarmupAsync(string id, IProgress<double> progress, CancellationToken ct) =>
+            await WarmupAsync(id, live: false, progress, ct).ConfigureAwait(false);
+
+        public static async Task WarmupAsync(string id, bool live, IProgress<double> progress, CancellationToken ct)
+        {
+            var pick = Resolve(id, live);
+            await LoadPickAsync(pick, progress, ct).ConfigureAwait(false);
+        }
+
+        static async Task LoadPickAsync(WhisperAutoPick pick, IProgress<double> progress, CancellationToken ct)
+        {
+            string id = pick.ModelId;
             string path = ModelPath(id);
-            Logger.Info("Whisper warmup begin model=" + id);
+            Logger.Info("Whisper warmup begin model=" + id + " backend=" + pick.Backend);
             await EnsureModelAsync(id, progress, ct).ConfigureAwait(false);
             long bytes = 0;
             try { if (File.Exists(path)) bytes = new FileInfo(path).Length; } catch { }
             Logger.Info($"Whisper model file ready path={path} bytes={bytes}");
             EnsureNativePath();
-            GetFactory(path);
-            Logger.Info("Whisper native factory loaded " + path);
+            try
+            {
+                GetFactory(path, pick.Backend);
+            }
+            catch (Exception ex) when (pick.Backend != WhisperBackend.Cpu)
+            {
+                Logger.Error("Whisper.Gpu", ex);
+                string smaller = WhisperAutoSelect.Smaller(id);
+                var fallback = WhisperAutoSelect.CpuFallback(pick, smaller);
+                LastPick = fallback;
+                Logger.Info("Whisper GPU load failed; CPU fallback " + fallback.Reason);
+                await EnsureModelAsync(fallback.ModelId, progress, ct).ConfigureAwait(false);
+                GetFactory(ModelPath(fallback.ModelId), WhisperBackend.Cpu);
+            }
+            Logger.Info("Whisper native factory loaded " + (LastPick?.ModelId ?? id));
         }
 
         public static bool DeleteModel(string id)
         {
-            id = WhisperModels.Normalize(id);
+            if (WhisperModels.IsAuto(id)) return false;
+            id = WhisperModels.NormalizeWeights(id);
             string path = ModelPath(id);
             bool any = DeleteIfExists(path) | DeleteIfExists(path + ".part");
             lock (FactoryGate)
@@ -84,7 +126,9 @@ namespace BestSnap.Services
 
         public static async Task EnsureModelAsync(string id, IProgress<double> progress, CancellationToken ct)
         {
-            id = WhisperModels.Normalize(id);
+            if (WhisperModels.IsAuto(id))
+                id = Resolve(id, live: false).ModelId;
+            id = WhisperModels.NormalizeWeights(id);
             var info = WhisperModels.Get(id);
             string path = ModelPath(id);
             if (WhisperModels.FileLooksComplete(path, info))
@@ -188,24 +232,46 @@ namespace BestSnap.Services
 
         public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
         {
+            var pick = Resolve(modelId, live: false);
             short[] pcm = await LoadMono16kAsync(media, progress, ct).ConfigureAwait(false);
             progress?.Report(0.15);
-            return await TranscribeSamplesAsync(pcm, modelId, decode, progress, ct).ConfigureAwait(false);
+            return await TranscribeSamplesAsync(pcm, pick.ModelId, pick.Backend, decode, progress, ct).ConfigureAwait(false);
         }
 
         public static Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, IProgress<double> progress, CancellationToken ct) =>
             TranscribeSamplesAsync(pcm, modelId, null, progress, ct);
 
-        public static async Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
+        public static Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct) =>
+            TranscribeSamplesAsync(pcm, modelId, LastPick?.Backend ?? WhisperBackend.Cpu, decode, progress, ct);
+
+        public static async Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
         {
             if (pcm == null || pcm.Length < AudioPcm.WhisperRate / 4)
                 return new List<TranscriptCue>();
-            modelId = WhisperModels.Normalize(modelId);
+            if (WhisperModels.IsAuto(modelId))
+            {
+                var pick = Resolve(modelId, live: false);
+                modelId = pick.ModelId;
+                backend = pick.Backend;
+            }
+            else modelId = WhisperModels.NormalizeWeights(modelId);
             await EnsureModelAsync(modelId, progress, ct).ConfigureAwait(false);
             await RunLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                var factory = GetFactory(ModelPath(modelId));
+                WhisperFactory factory;
+                try { factory = GetFactory(ModelPath(modelId), backend); }
+                catch (Exception ex) when (backend != WhisperBackend.Cpu)
+                {
+                    Logger.Error("Whisper.Gpu", ex);
+                    string smaller = WhisperAutoSelect.Smaller(modelId);
+                    var fallback = WhisperAutoSelect.CpuFallback(LastPick ?? new WhisperAutoPick { ModelId = modelId, Backend = backend }, smaller);
+                    LastPick = fallback;
+                    Logger.Info("Whisper GPU load failed; CPU fallback " + fallback.Reason);
+                    await EnsureModelAsync(fallback.ModelId, progress, ct).ConfigureAwait(false);
+                    modelId = fallback.ModelId;
+                    factory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu);
+                }
                 using var processor = BuildProcessor(factory, decode);
                 var floats = new float[pcm.Length];
                 for (int i = 0; i < pcm.Length; i++) floats[i] = pcm[i] / 32768f;
@@ -245,30 +311,25 @@ namespace BestSnap.Services
             return builder.Build();
         }
 
-        static WhisperFactory GetFactory(string path)
+        static WhisperFactory GetFactory(string path, WhisperBackend backend)
         {
             lock (FactoryGate)
             {
-                if (_factory != null && string.Equals(_factoryPath, path, StringComparison.OrdinalIgnoreCase))
+                if (_factory != null
+                    && string.Equals(_factoryPath, path, StringComparison.OrdinalIgnoreCase)
+                    && _factoryBackend == backend)
                     return _factory;
                 EnsureNativePath();
                 _factory?.Dispose();
-                Logger.Info("Whisper FromPath " + path);
-                string searchRoot = Path.GetDirectoryName(RuntimeOptions.LibraryPath);
-                bool gpu = WhisperNativeLayout.HasGpuRuntime(searchRoot);
-                Logger.Info("Whisper UseGpu=" + gpu + " searchRoot=" + searchRoot);
-                try
-                {
-                    _factory = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = gpu });
-                }
-                catch (Exception ex) when (gpu)
-                {
-                    Logger.Error("Whisper.Gpu", ex);
-                    Logger.Info("Whisper GPU load failed; retrying CPU");
-                    _factory = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = false });
-                }
+                _factory = null;
+                Logger.Info("Whisper FromPath " + path + " backend=" + backend);
+                WhisperHardwareProbe.ApplyBackend(backend);
+                bool gpu = backend != WhisperBackend.Cpu;
+                Logger.Info("Whisper UseGpu=" + gpu);
+                _factory = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = gpu });
                 _factoryPath = path;
-                Logger.Info("Whisper factory ready " + path);
+                _factoryBackend = backend;
+                Logger.Info("Whisper factory ready " + path + " " + backend);
                 return _factory;
             }
         }

@@ -11,7 +11,8 @@ namespace BestSnap.Tests
         [Fact]
         public void Catalog_IncludesTurboAndQuantizedWithExactHfSizeAndSha()
         {
-            Assert.Equal("large-v3-turbo", WhisperModels.DefaultId);
+            Assert.Equal("auto", WhisperModels.DefaultId);
+            Assert.Equal("auto", WhisperModels.ChoiceIds[0]);
             Assert.Contains("tiny", WhisperModels.Ids);
             Assert.Contains("base", WhisperModels.Ids);
             Assert.Contains("small", WhisperModels.Ids);
@@ -38,8 +39,12 @@ namespace BestSnap.Tests
             Assert.Equal("large-v3-turbo", WhisperModels.Normalize("turbo"));
             Assert.Equal("large-v3-turbo", WhisperModels.Normalize("large"));
             Assert.Equal("large-v3-turbo-q5_0", WhisperModels.Normalize("turbo-q5_0"));
-            Assert.Equal(WhisperModels.DefaultId, WhisperModels.Normalize(""));
-            Assert.Equal(WhisperModels.DefaultId, WhisperModels.Normalize("nope"));
+            Assert.Equal("auto", WhisperModels.Normalize(""));
+            Assert.Equal("auto", WhisperModels.Normalize("recommended"));
+            Assert.Equal("auto", WhisperModels.Normalize("nope"));
+            Assert.True(WhisperModels.IsAuto("auto"));
+            Assert.False(WhisperModels.IsAuto("base"));
+            Assert.Equal("base", WhisperModels.NormalizeWeights("auto"));
         }
 
         [Fact]

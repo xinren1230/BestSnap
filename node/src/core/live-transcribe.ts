@@ -1,11 +1,12 @@
 /** Rolling ffmpeg pulse capture → optional whisper-cli. Chunk wav files are deleted immediately. */
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chunkAbsStart, FIRST_WINDOW_SECONDS, stitch, WINDOW_SECONDS, extendCommitted } from "./live-chunk.js";
 import { localAppDataDir } from "./paths.js";
 import { composeWhisperPrompt, type TranscriptCue } from "./transcript.js";
+import { parseNvidiaSmi, pickWhisper } from "./whisper-auto.js";
 
 function which(bin: string): string | null {
   const pathEnv = process.env.PATH || "";
@@ -82,7 +83,21 @@ export class LiveTranscribe {
     const bin = findWhisper();
     if (!bin) return;
     const modelDir = path.join(localAppDataDir(), "models", "whisper");
-    const preferred = ["large-v3-turbo", "large-v3-turbo-q5_0", "medium", "medium-q5_0", "small", "base", "tiny"];
+    let smi = "";
+    try {
+      smi = execFileSync("nvidia-smi", ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"], { encoding: "utf8", timeout: 2000 });
+    } catch { /* no NVIDIA driver */ }
+    const pick = pickWhisper(
+      {
+        adapters: parseNvidiaSmi(smi),
+        ramBytes: os.totalmem(),
+        cpuCores: os.cpus().length,
+        cudaRuntime: false,
+        vulkanRuntime: false,
+      },
+      true,
+    );
+    const preferred = [pick.modelId, "large-v3-turbo", "large-v3-turbo-q5_0", "medium", "medium-q5_0", "small", "base", "tiny"];
     const model = preferred.map((id) => path.join(modelDir, `ggml-${id}.bin`)).find((p) => fs.existsSync(p));
     const lang = "auto";
     const prev = this.cues.slice(-4).map((c) => c.text).filter(Boolean).join(" ");

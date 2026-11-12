@@ -39,8 +39,9 @@ export function plainText(cues: TranscriptCue[]): string {
 }
 
 export const whisperModels = {
-  defaultId: "large-v3-turbo",
+  defaultId: "auto",
   ids: ["tiny", "base", "small", "medium-q5_0", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"] as const,
+  choiceIds: ["auto", "tiny", "base", "small", "medium-q5_0", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"] as const,
   fileName(id: string): string {
     return `ggml-${normalizeWhisper(id)}.bin`;
   },
@@ -48,11 +49,12 @@ export const whisperModels = {
 
 export function normalizeWhisper(id: string): string {
   const s = (id || "").trim().toLowerCase().replace(/\s+/g, "-");
+  if (!s || s === "auto" || s === "recommended") return "auto";
   if (s === "turbo" || s === "large" || s === "large-v3") return "large-v3-turbo";
   if (s === "turbo-q5_0" || s === "turbo-q5" || s === "large-v3-turbo-q5") return "large-v3-turbo-q5_0";
   if (s === "medium-q5" || s === "mediumq5_0") return "medium-q5_0";
   if ((whisperModels.ids as readonly string[]).includes(s)) return s;
-  return whisperModels.defaultId;
+  return "auto";
 }
 
 export const SIMPLIFIED_ZH_HINT = "以下使用简体中文转写，标点用，。？！、；";

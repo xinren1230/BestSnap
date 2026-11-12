@@ -86,7 +86,9 @@ namespace BestSnap.Tests
                 var cuda = Path.Combine(root, "runtimes", "cuda", "win-x64");
                 Directory.CreateDirectory(cuda);
                 File.WriteAllBytes(Path.Combine(cuda, "ggml-cuda-whisper.dll"), new byte[] { 1 });
+                Assert.True(WhisperNativeLayout.HasCudaRuntime(root));
                 Assert.True(WhisperNativeLayout.HasGpuRuntime(root));
+                Assert.False(WhisperNativeLayout.HasVulkanRuntime(root));
             }
             finally { TryDelete(root); }
         }

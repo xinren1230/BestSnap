@@ -26,7 +26,8 @@ namespace BestSnap.Plugins
     public static class WhisperModels
     {
         public const string HfBase = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
-        public const string DefaultId = "large-v3-turbo";
+        public const string AutoId = "auto";
+        public const string DefaultId = AutoId;
 
         public static readonly WhisperModelInfo[] All =
         {
@@ -48,24 +49,51 @@ namespace BestSnap.Plugins
 
         public static string[] Ids => All.Select(m => m.Id).ToArray();
 
-        public static WhisperModelInfo Get(string id)
+        public static string[] ChoiceIds
         {
-            id = Normalize(id);
-            foreach (var m in All)
-                if (m.Id == id) return m;
-            return All.First(m => m.Id == DefaultId);
+            get
+            {
+                var a = new string[All.Length + 1];
+                a[0] = AutoId;
+                for (int i = 0; i < All.Length; i++) a[i + 1] = All[i].Id;
+                return a;
+            }
         }
 
+        public static bool IsAuto(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return true;
+            id = id.Trim().ToLowerInvariant().Replace(' ', '-');
+            return id == AutoId || id == "recommended" || id == "auto-(recommended)" || id == "auto-recommended";
+        }
+
+        public static WhisperModelInfo Get(string id)
+        {
+            id = NormalizeWeights(id);
+            foreach (var m in All)
+                if (m.Id == id) return m;
+            return All.First(m => m.Id == "base");
+        }
+
+        /// <summary>Settings combo value: auto or a ggml id.</summary>
         public static string Normalize(string id)
         {
-            if (string.IsNullOrWhiteSpace(id)) return DefaultId;
+            if (IsAuto(id)) return AutoId;
             id = id.Trim().ToLowerInvariant().Replace(' ', '-');
             if (id == "turbo" || id == "large" || id == "large-v3" || id == "large-v3turbo") return "large-v3-turbo";
             if (id == "large-v3-turbo-q5" || id == "turbo-q5_0" || id == "turbo-q5") return "large-v3-turbo-q5_0";
             if (id == "medium-q5" || id == "mediumq5_0") return "medium-q5_0";
             foreach (var m in All)
                 if (m.Id == id) return m.Id;
-            return DefaultId;
+            return AutoId;
+        }
+
+        /// <summary>ggml file id; never auto.</summary>
+        public static string NormalizeWeights(string id)
+        {
+            if (IsAuto(id)) return "base";
+            string n = Normalize(id);
+            return n == AutoId ? "base" : n;
         }
 
         public static string FileName(string id) => Get(id).FileName;

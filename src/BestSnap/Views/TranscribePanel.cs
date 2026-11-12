@@ -43,6 +43,7 @@ namespace BestSnap.Views
             Margin = new Thickness(0, 12, 0, 0);
             Children.Add(new TextBlock { Text = L.T("转写（本机 Whisper，音频不会上传）"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
             _modelBox = WhisperUi.ModelCombo(_svc.Current.WhisperModel);
+            var autoHint = WhisperUi.AutoHint(_svc.Current.WhisperModel);
             _langBox = WhisperUi.LanguageCombo(_svc.Current.WhisperLanguage);
             _promptBox = new TextBox
             {
@@ -60,9 +61,14 @@ namespace BestSnap.Views
             Grid.SetColumn(ml, 0); Grid.SetColumn(_modelBox, 1); Grid.SetColumn(ll, 2); Grid.SetColumn(_langBox, 3);
             opt.Children.Add(ml); opt.Children.Add(_modelBox); opt.Children.Add(ll); opt.Children.Add(_langBox);
             Children.Add(opt);
+            Children.Add(autoHint);
             Children.Add(new TextBlock { Text = L.T("提示词 / 词汇（可选）"), FontSize = 11, Foreground = System.Windows.Media.Brushes.Gray, Margin = new Thickness(0, 0, 0, 2) });
             Children.Add(_promptBox);
-            _modelBox.SelectionChanged += (s, e) => PersistWhisper();
+            _modelBox.SelectionChanged += (s, e) =>
+            {
+                PersistWhisper();
+                WhisperUi.UpdateAutoHint(autoHint, WhisperUi.SelectedModel(_modelBox));
+            };
             _langBox.SelectionChanged += (s, e) => PersistWhisper();
             _promptBox.LostFocus += (s, e) => PersistWhisper();
 
@@ -138,8 +144,11 @@ namespace BestSnap.Views
             try
             {
                 PersistWhisper();
-                var modelId = WhisperModels.Normalize(_svc.Current.WhisperModel);
+                var pick = WhisperTranscriber.Resolve(_svc.Current.WhisperModel, live: false);
+                var modelId = pick.ModelId;
                 _status.Text = string.Format(L.T("正在本机转写（{0}，约 {1}）…"), modelId, WhisperModels.SizeLabel(modelId));
+                if (!string.IsNullOrEmpty(pick.Reason))
+                    _status.Text += "  " + pick.Reason;
                 IProgress<double> prog = new Progress<double>(p => _bar.Value = p);
                 var decode = new WhisperDecodeSettings
                 {

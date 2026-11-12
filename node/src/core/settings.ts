@@ -129,7 +129,7 @@ export function defaults(): AppSettings {
     historyMax: 50,
     language: "auto",
     ocrLanguage: "",
-    whisperModel: "large-v3-turbo",
+    whisperModel: "auto",
     whisperLanguage: "auto",
     whisperPrompt: "",
     formula: { engine: "Local", apiBase: "https://api.openai.com/v1", apiModel: "gpt-4o-mini", apiKey: "", mathpixAppId: "", mathpixKey: "" },

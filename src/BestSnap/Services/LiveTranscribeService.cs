@@ -78,7 +78,6 @@ namespace BestSnap.Services
             if (!_useMic && !_useSys) throw new InvalidOperationException(L.T("请选择至少一个音频来源。"));
             _micVol = opts.MicVolume;
             _sysVol = opts.SystemVolume;
-            _modelId = WhisperModels.Normalize(modelId);
             _language = WhisperDecode.NormalizeLanguage(language);
             _userPrompt = prompt;
             lock (_cueLock) _cues.Clear();
@@ -101,11 +100,15 @@ namespace BestSnap.Services
             HasStarted = false;
             _cts = new CancellationTokenSource();
             SetStatus(L.T("正在加载模型…"));
-            Logger.Info($"Live start source={opts.Source} mic={_useMic} sys={_useSys} model={_modelId} lang={_language}");
+            Logger.Info($"Live start source={opts.Source} mic={_useMic} sys={_useSys} choice={modelId} lang={_language}");
 
             try
             {
-                await WhisperTranscriber.WarmupAsync(_modelId, null, _cts.Token).ConfigureAwait(true);
+                await WhisperTranscriber.WarmupAsync(modelId, live: true, null, _cts.Token).ConfigureAwait(true);
+                _modelId = WhisperTranscriber.LastPick?.ModelId ?? WhisperModels.NormalizeWeights(modelId);
+                string why = WhisperTranscriber.LastPick?.Reason;
+                if (!string.IsNullOrEmpty(why))
+                    Logger.Info("Live whisper " + why);
             }
             catch (Exception ex)
             {

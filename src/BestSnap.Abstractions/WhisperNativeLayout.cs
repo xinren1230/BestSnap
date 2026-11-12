@@ -26,20 +26,26 @@ namespace BestSnap.Plugins
         public static string WinX64Relative => Path.Combine("runtimes", WinX64Folder);
 
         /// <summary>True when optional CUDA or Vulkan natives sit under runtimes/{cuda|vulkan}/win-x64.</summary>
-        public static bool HasGpuRuntime(string searchRoot)
+        public static bool HasGpuRuntime(string searchRoot) =>
+            HasCudaRuntime(searchRoot) || HasVulkanRuntime(searchRoot);
+
+        public static bool HasCudaRuntime(string searchRoot) =>
+            HasGpuFolder(searchRoot, "cuda", "ggml-cuda-whisper.dll");
+
+        public static bool HasVulkanRuntime(string searchRoot) =>
+            HasGpuFolder(searchRoot, "vulkan", "ggml-vulkan-whisper.dll");
+
+        public static bool HasGpuFolder(string searchRoot, string folder, string dll)
         {
-            if (string.IsNullOrWhiteSpace(searchRoot)) return false;
+            if (string.IsNullOrWhiteSpace(searchRoot) || string.IsNullOrWhiteSpace(folder)) return false;
             try
             {
-                foreach (var g in GpuRuntimeFolders)
-                {
-                    var d = Path.Combine(searchRoot, "runtimes", g, WinX64Folder);
-                    if (Directory.Exists(d))
-                    {
-                        foreach (var _ in Directory.EnumerateFiles(d, "*.dll"))
-                            return true;
-                    }
-                }
+                string dir = Path.Combine(searchRoot, "runtimes", folder, WinX64Folder);
+                if (!string.IsNullOrEmpty(dll))
+                    return File.Exists(Path.Combine(dir, dll));
+                if (!Directory.Exists(dir)) return false;
+                foreach (var _ in Directory.EnumerateFiles(dir, "*.dll"))
+                    return true;
             }
             catch { }
             return false;

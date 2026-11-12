@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { composeWhisperPrompt, normalizeWhisper, normalizeWhisperLanguage, srtTimestamp, toSrt, toTxt, whisperModels } from "../src/core/transcript.js";
+import { parseNvidiaSmi, pickWhisper } from "../src/core/whisper-auto.js";
 import { chunkAbsStart, extendCommitted, FIRST_WINDOW_SECONDS, fireAt, HOP_SECONDS, stitch, WINDOW_SECONDS, windowForIndex } from "../src/core/live-chunk.js";
 
 describe("transcript + live stitch", () => {
@@ -33,16 +34,38 @@ describe("transcript + live stitch", () => {
     assert.equal(HOP_SECONDS, 8);
   });
 
-  it("whisper models default to large-v3-turbo and keep aliases", () => {
-    assert.equal(whisperModels.defaultId, "large-v3-turbo");
+  it("whisper models default to auto and keep aliases", () => {
+    assert.equal(whisperModels.defaultId, "auto");
+    assert.equal(whisperModels.choiceIds[0], "auto");
     assert.ok(whisperModels.ids.includes("large-v3-turbo-q5_0"));
     assert.ok(whisperModels.ids.includes("medium-q5_0"));
     assert.equal(normalizeWhisper("base"), "base");
     assert.equal(normalizeWhisper("turbo"), "large-v3-turbo");
+    assert.equal(normalizeWhisper(""), "auto");
     assert.equal(normalizeWhisperLanguage("zh-CN"), "zh");
     const p = composeWhisperPrompt("zh", "BestSnap", "上一句");
     assert.match(p, /简体中文/);
     assert.match(p, /BestSnap/);
+  });
+
+  it("auto-picks turbo on 8 GB CUDA and shrinks for live at 6 GB", () => {
+    const GiB = 1024 ** 3;
+    const rtx = pickWhisper(
+      { adapters: [{ name: "NVIDIA GeForce RTX 4060", vendor: "nvidia", dedicatedBytes: 8 * GiB }], ramBytes: 16 * GiB, cpuCores: 8, cudaRuntime: true, vulkanRuntime: true },
+      false,
+    );
+    assert.equal(rtx.modelId, "large-v3-turbo");
+    assert.equal(rtx.backend, "cuda");
+    assert.match(rtx.reason, /RTX 4060/);
+    const live6 = pickWhisper(
+      { adapters: [{ name: "NVIDIA GeForce RTX 3060", vendor: "nvidia", dedicatedBytes: 6 * GiB }], ramBytes: 16 * GiB, cpuCores: 8, cudaRuntime: true, vulkanRuntime: true },
+      true,
+    );
+    assert.equal(live6.modelId, "large-v3-turbo-q5_0");
+    const cpu = pickWhisper({ adapters: [], ramBytes: 8 * GiB, cpuCores: 4, cudaRuntime: false, vulkanRuntime: false }, false);
+    assert.equal(cpu.modelId, "base");
+    const smi = parseNvidiaSmi("NVIDIA GeForce RTX 4060, 8188");
+    assert.equal(smi[0].vendor, "nvidia");
   });
 
   it("chunk abs start uses first window then hop", () => {
