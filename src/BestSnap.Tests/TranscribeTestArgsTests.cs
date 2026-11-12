@@ -21,6 +21,16 @@ namespace BestSnap.Tests
             Assert.True(a.LiveSim);
             Assert.True(a.DebugChunks);
             Assert.Equal(@"C:\out.txt", a.Out);
+            Assert.Equal(0, a.StretchMinutes);
+        }
+
+        [Fact]
+        public void Parse_StretchMinutes()
+        {
+            var a = TranscribeTestArgs.Parse(new[] { "--transcribe-test", "a.wav", "--stretch-minutes", "10", "--live-sim" });
+            Assert.Equal(10, a.StretchMinutes);
+            Assert.True(a.LiveSim);
+            Assert.Throws<ArgumentException>(() => TranscribeTestArgs.Parse(new[] { "--transcribe-test", "a.wav", "--stretch-minutes", "-1" }));
         }
 
         [Fact]

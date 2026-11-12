@@ -281,16 +281,17 @@ namespace BestSnap.Services
                 return ExitCodes.BadArgs;
             }
             string model = string.IsNullOrWhiteSpace(t.Model) ? "auto" : t.Model.Trim();
-            Line("transcribe-test file=" + input + " model=" + model + " backend=" + (t.Backend ?? "auto") + " live-sim=" + t.LiveSim);
-            var decode = new WhisperDecodeSettings { Language = "auto", Live = t.LiveSim };
+            Line("transcribe-test file=" + input + " model=" + model + " backend=" + (t.Backend ?? "auto") + " live-sim=" + t.LiveSim + " stretch-minutes=" + t.StretchMinutes.ToString("0.##", CultureInfo.InvariantCulture));
+            var decode = new WhisperDecodeSettings { Language = "auto", Live = t.LiveSim, ReuseProcessor = true };
             try
             {
-                List<TranscriptCue> cues;
+                LivePipelineResult result;
                 if (t.LiveSim)
-                    cues = await LiveTranscribeEngine.RunFileAsync(input, model, backend, decode, t.DebugChunks, Line, CancellationToken.None);
+                    result = await LiveTranscribeEngine.RunFileAsync(input, model, backend, decode, t.DebugChunks, Line, CancellationToken.None, t.StretchMinutes);
                 else
-                    cues = await WhisperTranscriber.TranscribeFileAsync(input, model, backend, decode, null, CancellationToken.None);
-                cues ??= new List<TranscriptCue>();
+                    result = await WhisperTranscriber.TranscribeFileWindowedAsync(input, model, backend, decode, null, null, CancellationToken.None, t.StretchMinutes);
+                result ??= new LivePipelineResult();
+                var cues = result.Cues ?? new List<TranscriptCue>();
                 string plain = TranscriptFormat.PlainText(cues);
                 Line("--- transcript ---");
                 Line(string.IsNullOrWhiteSpace(plain) ? "" : TranscriptFormat.ToTxt(cues).TrimEnd());
@@ -299,8 +300,15 @@ namespace BestSnap.Services
                     Line("--- live-sim srt ---");
                     Line(TranscriptFormat.ToSrt(cues).TrimEnd());
                 }
-                Line("cues=" + cues.Count + " chars=" + (plain ?? "").Length);
+                Line("cues=" + cues.Count + " chars=" + (plain ?? "").Length + " dur=" + result.DurationSeconds.ToString("0.##", CultureInfo.InvariantCulture) + "s processed=" + result.Processed + " timedOut=" + result.TimedOut + " maxDecode=" + result.MaxDecodeSeconds.ToString("0.##", CultureInfo.InvariantCulture) + "s ratio=" + result.MaxDecodeRatio.ToString("0.##", CultureInfo.InvariantCulture));
+                string fail = WhisperDecodeBudget.SelfTestFailure(result.Reports, cues, result.DurationSeconds);
                 WriteOut(t, log);
+                if (!string.IsNullOrEmpty(fail))
+                {
+                    Line("self-test failed: " + fail);
+                    WriteOut(t, log);
+                    return ExitCodes.Error;
+                }
                 if (cues.Count == 0 || string.IsNullOrWhiteSpace(plain))
                 {
                     Line("empty transcript");

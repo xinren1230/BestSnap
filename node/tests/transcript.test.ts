@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { composeWhisperPrompt, normalizeWhisper, normalizeWhisperLanguage, srtTimestamp, toSrt, toTxt, whisperModels } from "../src/core/transcript.js";
 import { parseNvidiaSmi, pickWhisper } from "../src/core/whisper-auto.js";
-import { chunkAbsStart, extendCommitted, FIRST_WINDOW_SECONDS, fireAt, HOP_SECONDS, stitch, WINDOW_SECONDS, windowForIndex } from "../src/core/live-chunk.js";
+import { chunkAbsStart, cuesMissingInSecondHalf, dropOldestCount, exceedsDurationFactor, extendCommitted, FILE_WINDOW_SECONDS, FIRST_WINDOW_SECONDS, fireAt, HOP_SECONDS, lagExceedsHops, LIVE_MAX_PENDING, stitch, timeoutSeconds, WINDOW_SECONDS, windowForIndex } from "../src/core/live-chunk.js";
 
 describe("transcript + live stitch", () => {
   it("formats SRT timestamps", () => {
@@ -112,6 +112,18 @@ describe("transcript + live stitch", () => {
   it("stitch drops blank audio", () => {
     const added = stitch([{ start: 0, end: 1, text: "[BLANK_AUDIO]" }], 0, 0, 3.5);
     assert.equal(added.length, 0);
+  });
+
+  it("live decode timeout is ~2.5x the window", () => {
+    assert.equal(timeoutSeconds(10, true), 25);
+    assert.equal(timeoutSeconds(FILE_WINDOW_SECONDS, false), 75);
+    assert.equal(dropOldestCount(5), 3);
+    assert.equal(LIVE_MAX_PENDING, 2);
+    assert.equal(lagExceedsHops(0, HOP_SECONDS * 2 + 0.1), true);
+    assert.equal(exceedsDurationFactor(31, 10), true);
+    assert.equal(exceedsDurationFactor(29, 10), false);
+    assert.equal(cuesMissingInSecondHalf([{ start: 1, end: 2, text: "a" }], 20), true);
+    assert.equal(cuesMissingInSecondHalf([{ start: 1, end: 2, text: "a" }, { start: 11, end: 12, text: "b" }], 20), false);
   });
 
   it("extendCommitted takes max end", () => {

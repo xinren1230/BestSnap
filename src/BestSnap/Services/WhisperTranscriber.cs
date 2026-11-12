@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -23,9 +24,14 @@ namespace BestSnap.Services
         static readonly SemaphoreSlim RunLock = new SemaphoreSlim(1, 1);
         static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromHours(2) };
         static readonly object FactoryGate = new object();
-        static WhisperFactory _factory;
-        static string _factoryPath;
-        static WhisperBackend _factoryBackend;
+        static WhisperFactory _gpuFactory;
+        static string _gpuPath;
+        static WhisperBackend _gpuKind;
+        static WhisperFactory _cpuFactory;
+        static string _cpuPath;
+        static WhisperProcessor _reused;
+        static string _reusedKey;
+        static int _epoch;
 
         public static WhisperAutoPick LastPick { get; private set; }
 
@@ -106,12 +112,9 @@ namespace BestSnap.Services
             bool any = DeleteIfExists(path) | DeleteIfExists(path + ".part");
             lock (FactoryGate)
             {
-                if (_factory != null && string.Equals(_factoryPath, path, StringComparison.OrdinalIgnoreCase))
-                {
-                    try { _factory.Dispose(); } catch { }
-                    _factory = null;
-                    _factoryPath = null;
-                }
+                bool hit = string.Equals(_gpuPath, path, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(_cpuPath, path, StringComparison.OrdinalIgnoreCase);
+                if (hit) DisposeFactoriesUnsafe();
             }
             return any;
         }
@@ -242,7 +245,16 @@ namespace BestSnap.Services
         public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct) =>
             await TranscribeFileAsync(media, modelId, null, decode, progress, ct).ConfigureAwait(false);
 
-        public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperBackend? forceBackend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
+        public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperBackend? forceBackend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct) =>
+            (await TranscribeFileWindowedAsync(media, modelId, forceBackend, decode, progress, null, ct).ConfigureAwait(false)).Cues;
+
+        public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, Action<IReadOnlyList<TranscriptCue>> onCues, CancellationToken ct) =>
+            (await TranscribeFileWindowedAsync(media, modelId, null, decode, progress, onCues, ct).ConfigureAwait(false)).Cues;
+
+        public static async Task<LivePipelineResult> TranscribeFileWindowedAsync(
+            string media, string modelId, WhisperBackend? forceBackend, WhisperDecodeSettings decode,
+            IProgress<double> progress, Action<IReadOnlyList<TranscriptCue>> onCues, CancellationToken ct,
+            double stretchMinutes = 0)
         {
             var pick = Resolve(modelId, live: false);
             if (forceBackend is WhisperBackend b)
@@ -251,9 +263,46 @@ namespace BestSnap.Services
                 LastPick = pick;
                 Logger.Info("Whisper backend forced " + b);
             }
+            await LoadPickAsync(pick, progress, ct).ConfigureAwait(false);
             short[] pcm = await LoadMono16kAsync(media, progress, ct).ConfigureAwait(false);
+            if (stretchMinutes > 0)
+            {
+                pcm = AudioPcm.RepeatWithSilence(pcm, 2, stretchMinutes);
+                Logger.Info($"Whisper stretch minutes={stretchMinutes:F1} samples={pcm.Length} dur={pcm.Length / (double)AudioPcm.WhisperRate:F1}s");
+            }
             progress?.Report(0.15);
-            return await TranscribeSamplesAsync(pcm, pick.ModelId, pick.Backend, decode, progress, ct).ConfigureAwait(false);
+            decode ??= new WhisperDecodeSettings();
+            decode.Live = false;
+            decode.ReuseProcessor = true;
+            return await TranscribePcmWindowedAsync(pcm, pick.ModelId, pick.Backend, decode, progress, onCues, ct, live: false).ConfigureAwait(false);
+        }
+
+        public static async Task<LivePipelineResult> TranscribePcmWindowedAsync(
+            short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode,
+            IProgress<double> progress, Action<IReadOnlyList<TranscriptCue>> onCues, CancellationToken ct, bool live)
+        {
+            decode ??= new WhisperDecodeSettings();
+            decode.Live = live;
+            decode.ReuseProcessor = true;
+            double total = pcm == null || pcm.Length == 0 ? 0 : pcm.Length / (double)AudioPcm.WhisperRate;
+            double first = live ? -1 : FileChunkMath.WindowSeconds;
+            double window = live ? -1 : FileChunkMath.WindowSeconds;
+            double overlap = live ? -1 : FileChunkMath.OverlapSeconds;
+            return await LiveTranscribePipeline.RunDetailedAsync(pcm, async (w, prev, token) =>
+            {
+                var d = new WhisperDecodeSettings
+                {
+                    Language = decode.Language,
+                    Prompt = decode.Prompt,
+                    PreviousText = prev,
+                    Live = live,
+                    ReuseProcessor = true
+                };
+                var r = await TranscribeSamplesDetailedAsync(w.Pcm, modelId, backend, d, null, token).ConfigureAwait(false);
+                if (total > 0)
+                    progress?.Report(0.15 + 0.85 * Math.Min(1, (w.AbsStart + w.DurationSeconds) / total));
+                return r;
+            }, s => Logger.Info((live ? "WhisperLive " : "WhisperFile ") + s), null, ct, first, window, overlap, live, onCues).ConfigureAwait(false);
         }
 
         public static Task<short[]> LoadPcmAsync(string media, IProgress<double> progress, CancellationToken ct) =>
@@ -265,12 +314,16 @@ namespace BestSnap.Services
         public static Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct) =>
             TranscribeSamplesAsync(pcm, modelId, LastPick?.Backend ?? WhisperBackend.Cpu, decode, progress, ct);
 
-        public static async Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
+        public static async Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct) =>
+            (await TranscribeSamplesDetailedAsync(pcm, modelId, backend, decode, progress, ct).ConfigureAwait(false)).Cues;
+
+        public static async Task<WhisperDecodeResult> TranscribeSamplesDetailedAsync(short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
         {
+            var empty = new WhisperDecodeResult { Backend = backend, ChunkDuration = pcm == null ? 0 : pcm.Length / (double)AudioPcm.WhisperRate };
             if (pcm == null || pcm.Length < AudioPcm.WhisperRate / 4)
             {
                 Logger.Info("Whisper skip short pcm samples=" + (pcm == null ? 0 : pcm.Length));
-                return new List<TranscriptCue>();
+                return empty;
             }
             if (WhisperModels.IsAuto(modelId))
             {
@@ -280,49 +333,124 @@ namespace BestSnap.Services
             }
             else modelId = WhisperModels.NormalizeWeights(modelId);
             await EnsureModelAsync(modelId, progress, ct).ConfigureAwait(false);
+            decode ??= new WhisperDecodeSettings();
+            bool live = decode.Live;
+            if (live) decode.ReuseProcessor = true;
+            double dur = pcm.Length / (double)AudioPcm.WhisperRate;
+            double budget = WhisperDecodeBudget.TimeoutSeconds(dur, live);
+            empty.ChunkDuration = dur;
+            empty.Backend = backend;
             await RunLock.WaitAsync(ct).ConfigureAwait(false);
+            var sw = Stopwatch.StartNew();
             try
             {
-                WhisperFactory factory;
-                try { factory = GetFactory(ModelPath(modelId), backend); }
-                catch (Exception ex) when (backend != WhisperBackend.Cpu)
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var work = DecodeWithRetriesAsync(pcm, modelId, backend, decode, linked.Token);
+                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var timeout = Task.Delay(TimeSpan.FromSeconds(budget), delayCts.Token);
+                var done = await Task.WhenAny(work, timeout).ConfigureAwait(false);
+                if (done != work)
                 {
-                    Logger.Error("Whisper.Gpu", ex);
-                    string smaller = WhisperAutoSelect.Smaller(modelId);
-                    var fallback = WhisperAutoSelect.CpuFallback(LastPick ?? new WhisperAutoPick { ModelId = modelId, Backend = backend }, smaller);
-                    LastPick = fallback;
-                    Logger.Info("Whisper GPU load failed; CPU fallback " + fallback.Reason);
-                    await EnsureModelAsync(fallback.ModelId, progress, ct).ConfigureAwait(false);
-                    modelId = fallback.ModelId;
-                    backend = WhisperBackend.Cpu;
-                    factory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu);
-                }
-                var floats = AudioPcm.ToFloat32(pcm);
-                LogFloatStats(floats, pcm.Length);
-                var cues = await DecodeOnceAsync(factory, floats, pcm, decode, backend, "float32", ct).ConfigureAwait(false);
-                if (cues.Count == 0)
-                {
-                    Logger.Info("Whisper float32 empty; retry 16 kHz PCM WAV stream backend=" + backend);
-                    cues = await DecodeOnceAsync(factory, null, pcm, decode, backend, "wav", ct).ConfigureAwait(false);
-                }
-                if (cues.Count == 0 && backend != WhisperBackend.Cpu)
-                {
-                    Logger.Info("Whisper GPU decode produced 0 cues; retrying same model on CPU");
-                    factory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu);
-                    cues = await DecodeOnceAsync(factory, floats, pcm, decode, WhisperBackend.Cpu, "float32-cpu", ct).ConfigureAwait(false);
-                    if (cues.Count == 0)
-                        cues = await DecodeOnceAsync(factory, null, pcm, decode, WhisperBackend.Cpu, "wav-cpu", ct).ConfigureAwait(false);
-                    if (cues.Count > 0)
+                    Logger.Info($"Whisper TIMEOUT after {sw.Elapsed.TotalSeconds:F2}s budget={budget:F1}s dur={dur:F2}s live={live} backend={backend} model={modelId}");
+                    try { linked.Cancel(); } catch { }
+                    RecreateBackend(ModelPath(modelId), backend);
+                    try { await Task.WhenAny(work, Task.Delay(2000)).ConfigureAwait(false); } catch { }
+                    return new WhisperDecodeResult
                     {
-                        LastPick = WhisperAutoSelect.CpuDecodeFallback(LastPick ?? new WhisperAutoPick { ModelId = modelId, Backend = backend });
-                        Logger.Info("Whisper CPU fallback produced " + cues.Count + " cues (" + LastPick.Reason + ")");
-                    }
-                    else Logger.Info("Whisper CPU retry also empty");
+                        TimedOut = true,
+                        RecreatedFactory = true,
+                        ElapsedSeconds = sw.Elapsed.TotalSeconds,
+                        ChunkDuration = dur,
+                        Backend = backend,
+                        RetryPath = "timeout",
+                        Epoch = Volatile.Read(ref _epoch)
+                    };
+                }
+                try { delayCts.Cancel(); } catch { }
+                var result = await work.ConfigureAwait(false) ?? empty;
+                result.ElapsedSeconds = sw.Elapsed.TotalSeconds;
+                result.ChunkDuration = dur;
+                result.Epoch = Volatile.Read(ref _epoch);
+                bool slow = WhisperDecodeBudget.IsSlow(result.ElapsedSeconds, dur, live);
+                if (slow)
+                {
+                    Logger.Info($"Whisper slow decode elapsed={result.ElapsedSeconds:F2}s dur={dur:F2}s live={live} backend={result.Backend} — recreating factory");
+                    RecreateBackend(ModelPath(modelId), result.Backend);
+                    result.RecreatedFactory = true;
                 }
                 progress?.Report(1);
-                return cues;
+                return result;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                RecreateBackend(ModelPath(modelId), backend);
+                return new WhisperDecodeResult
+                {
+                    TimedOut = true,
+                    RecreatedFactory = true,
+                    ElapsedSeconds = sw.Elapsed.TotalSeconds,
+                    ChunkDuration = dur,
+                    Backend = backend,
+                    RetryPath = "timeout",
+                    Epoch = Volatile.Read(ref _epoch)
+                };
             }
             finally { RunLock.Release(); }
+        }
+
+        static async Task<WhisperDecodeResult> DecodeWithRetriesAsync(short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode, CancellationToken ct)
+        {
+            WhisperFactory factory;
+            var sessionBackend = backend;
+            try { factory = GetFactory(ModelPath(modelId), backend); }
+            catch (Exception ex) when (backend != WhisperBackend.Cpu)
+            {
+                Logger.Error("Whisper.Gpu", ex);
+                string smaller = WhisperAutoSelect.Smaller(modelId);
+                var fallback = WhisperAutoSelect.CpuFallback(LastPick ?? new WhisperAutoPick { ModelId = modelId, Backend = backend }, smaller);
+                LastPick = fallback;
+                Logger.Info("Whisper GPU load failed; CPU fallback " + fallback.Reason);
+                await EnsureModelAsync(fallback.ModelId, progress: null, ct).ConfigureAwait(false);
+                modelId = fallback.ModelId;
+                sessionBackend = WhisperBackend.Cpu;
+                factory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu);
+            }
+            var floats = AudioPcm.ToFloat32(pcm);
+            LogFloatStats(floats, pcm.Length);
+            var result = await DecodeOnceAsync(factory, floats, pcm, decode, sessionBackend, "float32", ct).ConfigureAwait(false);
+            if (result.KeptCues == 0 && !result.TimedOut)
+            {
+                Logger.Info("Whisper float32 empty; cheap retry 16 kHz PCM WAV backend=" + sessionBackend);
+                result = await DecodeOnceAsync(factory, null, pcm, decode, sessionBackend, "wav", ct).ConfigureAwait(false);
+                result.RetryPath = "wav";
+            }
+            if (result.KeptCues == 0 && !result.TimedOut && sessionBackend != WhisperBackend.Cpu)
+            {
+                bool live = decode?.Live == true;
+                bool turbo = (modelId ?? "").IndexOf("turbo", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (live || turbo)
+                {
+                    Logger.Info("Whisper skip CPU re-decode of " + modelId + " live=" + live + " (keeping GPU factory, LastPick unchanged)");
+                    result.RetryPath = (result.RetryPath ?? "float32") + "+skip-cpu";
+                }
+                else
+                {
+                    Logger.Info("Whisper GPU empty; CPU factory in parallel (GPU kept, LastPick unchanged)");
+                    var cpuFactory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu, allowCpuBesideGpu: true);
+                    if (cpuFactory != null && !ReferenceEquals(cpuFactory, factory))
+                    {
+                        result = await DecodeOnceAsync(cpuFactory, floats, pcm, decode, WhisperBackend.Cpu, "float32-cpu", ct).ConfigureAwait(false);
+                        result.RetryPath = "float32-cpu";
+                    }
+                    else
+                    {
+                        Logger.Info("Whisper CPU side-factory refused; GPU factory kept");
+                        result.RetryPath = (result.RetryPath ?? "wav") + "+cpu-refused";
+                    }
+                }
+            }
+            result.Backend = sessionBackend;
+            return result;
         }
 
         static void LogFloatStats(float[] floats, int samples)
@@ -347,11 +475,13 @@ namespace BestSnap.Services
                 Logger.Info("Whisper pcm float32 out of [-1,1] — samples may be int16-as-float");
         }
 
-        static async Task<List<TranscriptCue>> DecodeOnceAsync(WhisperFactory factory, float[] floats, short[] pcm, WhisperDecodeSettings decode, WhisperBackend backend, string path, CancellationToken ct)
+        static async Task<WhisperDecodeResult> DecodeOnceAsync(WhisperFactory factory, float[] floats, short[] pcm, WhisperDecodeSettings decode, WhisperBackend backend, string path, CancellationToken ct)
         {
-            using var processor = BuildProcessor(factory, decode, backend);
+            bool own = decode?.ReuseProcessor != true;
+            var processor = GetOrBuildProcessor(factory, decode, backend);
             var cues = new List<TranscriptCue>();
             int raw = 0, kept = 0;
+            bool timedOut = false;
             MemoryStream wav = null;
             try
             {
@@ -384,21 +514,42 @@ namespace BestSnap.Services
                     processor.Return(seg);
                 }
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException)
+            {
+                timedOut = !ct.IsCancellationRequested;
+                if (!timedOut) throw;
+                Logger.Info("Whisper decode canceled path=" + path + " (timeout)");
+            }
             catch (Exception ex)
             {
                 Logger.Error("Whisper.Decode." + path, ex);
             }
-            finally { try { wav?.Dispose(); } catch { } }
-            Logger.Info($"Whisper decode done path={path} backend={backend} lang={WhisperDecode.ProcessorLanguage(decode?.Language)} beam={WhisperDecode.PreferBeamSearch(backend, decode?.Live == true)} raw={raw} kept={kept}");
-            return cues;
+            finally
+            {
+                try { wav?.Dispose(); } catch { }
+                if (own)
+                {
+                    try { processor.Dispose(); } catch { }
+                }
+            }
+            Logger.Info($"Whisper decode done path={path} backend={backend} lang={WhisperDecode.ProcessorLanguage(decode?.Language)} beam={WhisperDecode.PreferBeamSearch(backend, decode?.Live == true)} reuse={!own} raw={raw} kept={kept} timeout={timedOut}");
+            return new WhisperDecodeResult
+            {
+                Cues = cues,
+                RawSegments = raw,
+                KeptCues = kept,
+                Backend = backend,
+                RetryPath = path,
+                TimedOut = timedOut
+            };
         }
 
         internal static WhisperProcessor BuildProcessor(WhisperFactory factory, WhisperDecodeSettings decode, WhisperBackend backend)
         {
             var builder = factory.CreateBuilder();
             string lang = WhisperDecode.ProcessorLanguage(decode?.Language);
-            string prompt = WhisperDecode.ComposePrompt(lang, decode?.Prompt, decode?.PreviousText);
+            string prev = decode?.ReuseProcessor == true ? null : decode?.PreviousText;
+            string prompt = WhisperDecode.ComposePrompt(lang, decode?.Prompt, prev);
             if (!string.IsNullOrEmpty(prompt)) builder.WithPrompt(prompt);
             // whisper.cpp detect_language=true is detect-ONLY (zero segments). Auto must be WithLanguage("auto").
             builder.WithLanguage(lang);
@@ -417,31 +568,122 @@ namespace BestSnap.Services
                 try { builder.WithGreedySamplingStrategy(); }
                 catch { }
             }
-            Logger.Info("Whisper processor lang=" + lang + " detectOnly=" + WhisperDecode.DetectLanguageOnly + " live=" + live + " backend=" + backend);
+            Logger.Info("Whisper processor lang=" + lang + " detectOnly=" + WhisperDecode.DetectLanguageOnly + " live=" + live + " backend=" + backend + " reuse=" + (decode?.ReuseProcessor == true));
             return builder.Build();
         }
 
-        static WhisperFactory GetFactory(string path, WhisperBackend backend)
+        static WhisperProcessor GetOrBuildProcessor(WhisperFactory factory, WhisperDecodeSettings decode, WhisperBackend backend)
+        {
+            if (decode?.ReuseProcessor != true)
+                return BuildProcessor(factory, decode, backend);
+            string lang = WhisperDecode.ProcessorLanguage(decode?.Language);
+            string key = backend + "|" + lang + "|" + (decode.Live ? "live" : "file") + "|" + (decode.Prompt ?? "");
+            lock (FactoryGate)
+            {
+                if (_reused != null && string.Equals(_reusedKey, key, StringComparison.Ordinal))
+                    return _reused;
+                DisposeProcessorUnsafe();
+                _reused = BuildProcessor(factory, decode, backend);
+                _reusedKey = key;
+                Logger.Info("Whisper processor reused key=" + key);
+                return _reused;
+            }
+        }
+
+        static void RecreateBackend(string path, WhisperBackend backend)
         {
             lock (FactoryGate)
             {
-                if (_factory != null
-                    && string.Equals(_factoryPath, path, StringComparison.OrdinalIgnoreCase)
-                    && _factoryBackend == backend)
-                    return _factory;
-                EnsureNativePath();
-                _factory?.Dispose();
-                _factory = null;
-                Logger.Info("Whisper FromPath " + path + " backend=" + backend);
-                WhisperHardwareProbe.ApplyBackend(backend);
-                bool gpu = backend != WhisperBackend.Cpu;
-                Logger.Info("Whisper UseGpu=" + gpu);
-                _factory = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = gpu });
-                _factoryPath = path;
-                _factoryBackend = backend;
-                Logger.Info("Whisper factory ready " + path + " " + backend);
-                return _factory;
+                Interlocked.Increment(ref _epoch);
+                DisposeProcessorUnsafe();
+                if (backend == WhisperBackend.Cpu)
+                {
+                    try { _cpuFactory?.Dispose(); } catch { }
+                    _cpuFactory = null;
+                    _cpuPath = null;
+                }
+                else
+                {
+                    try { _gpuFactory?.Dispose(); } catch { }
+                    _gpuFactory = null;
+                    _gpuPath = null;
+                }
+                Logger.Info("Whisper factory recreated epoch=" + _epoch + " backend=" + backend);
+                if (string.IsNullOrEmpty(path)) return;
+                try
+                {
+                    if (backend == WhisperBackend.Cpu && _gpuFactory != null) return;
+                    GetFactoryUnsafe(path, backend, recreate: true, allowCpuBesideGpu: backend == WhisperBackend.Cpu && _gpuFactory != null);
+                }
+                catch (Exception ex) { Logger.Error("Whisper.Recreate", ex); }
             }
+        }
+
+        static void DisposeProcessorUnsafe()
+        {
+            try { _reused?.Dispose(); } catch { }
+            _reused = null;
+            _reusedKey = null;
+        }
+
+        static void DisposeFactoriesUnsafe()
+        {
+            DisposeProcessorUnsafe();
+            try { _gpuFactory?.Dispose(); } catch { }
+            try { _cpuFactory?.Dispose(); } catch { }
+            _gpuFactory = null;
+            _cpuFactory = null;
+            _gpuPath = null;
+            _cpuPath = null;
+        }
+
+        static WhisperFactory GetFactory(string path, WhisperBackend backend, bool allowCpuBesideGpu = false)
+        {
+            lock (FactoryGate)
+                return GetFactoryUnsafe(path, backend, recreate: false, allowCpuBesideGpu);
+        }
+
+        static WhisperFactory GetFactoryUnsafe(string path, WhisperBackend backend, bool recreate, bool allowCpuBesideGpu)
+        {
+            if (backend == WhisperBackend.Cpu)
+            {
+                if (_gpuFactory != null && !allowCpuBesideGpu)
+                {
+                    Logger.Info("Whisper refuse CPU factory replace; keeping GPU " + _gpuKind + " " + _gpuPath);
+                    return _gpuFactory;
+                }
+                if (!recreate && _cpuFactory != null && string.Equals(_cpuPath, path, StringComparison.OrdinalIgnoreCase))
+                    return _cpuFactory;
+                EnsureNativePath();
+                DisposeProcessorUnsafe();
+                try { _cpuFactory?.Dispose(); } catch { }
+                _cpuFactory = null;
+                Logger.Info("Whisper FromPath " + path + " backend=Cpu (GPU factory kept=" + (_gpuFactory != null) + ")");
+                if (_gpuFactory == null)
+                    WhisperHardwareProbe.ApplyBackend(WhisperBackend.Cpu);
+                Logger.Info("Whisper UseGpu=False");
+                _cpuFactory = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = false });
+                _cpuPath = path;
+                Logger.Info("Whisper CPU factory ready " + path);
+                return _cpuFactory;
+            }
+
+            if (!recreate && _gpuFactory != null
+                && string.Equals(_gpuPath, path, StringComparison.OrdinalIgnoreCase)
+                && _gpuKind == backend)
+                return _gpuFactory;
+            EnsureNativePath();
+            DisposeProcessorUnsafe();
+            try { _gpuFactory?.Dispose(); } catch { }
+            _gpuFactory = null;
+            Logger.Info("Whisper FromPath " + path + " backend=" + backend);
+            WhisperHardwareProbe.ApplyBackend(backend);
+            Logger.Info("Whisper UseGpu=True");
+            _gpuFactory = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = true });
+            _gpuPath = path;
+            _gpuKind = backend;
+            Logger.Info("Whisper GPU factory ready " + path + " " + backend + " cpuKept=" + (_cpuFactory != null));
+            return _gpuFactory;
         }
 
         static bool _nativeReady;

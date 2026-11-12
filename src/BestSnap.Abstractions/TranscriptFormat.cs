@@ -134,4 +134,16 @@ namespace BestSnap.Plugins
             return t;
         }
     }
+
+    /// <summary>Long-file ASR windows (~30 s with overlap). Same stitch as live captions.</summary>
+    public static class FileChunkMath
+    {
+        public const double WindowSeconds = 30;
+        public const double OverlapSeconds = 2;
+        public static double HopSeconds => WindowSeconds - OverlapSeconds;
+
+        public static List<LivePcmWindow> SlicePcm(short[] pcm, int sampleRate = AudioPcm.WhisperRate) =>
+            LiveTranscribePipeline.SlicePcm(pcm, sampleRate, includeTail: true,
+                firstWindow: WindowSeconds, window: WindowSeconds, overlap: OverlapSeconds);
+    }
 }

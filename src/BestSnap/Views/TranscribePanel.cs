@@ -153,11 +153,22 @@ namespace BestSnap.Views
                 var decode = new WhisperDecodeSettings
                 {
                     Language = _svc.Current.WhisperLanguage,
-                    Prompt = _svc.Current.WhisperPrompt
+                    Prompt = _svc.Current.WhisperPrompt,
+                    ReuseProcessor = true
                 };
-                var cues = await WhisperTranscriber.TranscribeFileAsync(file, modelId, decode, prog, _cts.Token);
-                _cues.Clear(); _cues.AddRange(cues);
+                _cues.Clear();
                 _summary = null;
+                RefreshText();
+                IProgress<IReadOnlyList<TranscriptCue>> stream = new Progress<IReadOnlyList<TranscriptCue>>(added =>
+                {
+                    if (added == null || added.Count == 0) return;
+                    _cues.AddRange(added);
+                    RefreshText();
+                    _status.Text = string.Format(L.T("正在本机转写…已输出 {0} 段。"), _cues.Count);
+                });
+                var result = await WhisperTranscriber.TranscribeFileWindowedAsync(file, modelId, null, decode, prog, added => stream.Report(added), _cts.Token);
+                if (_cues.Count == 0 && result?.Cues != null)
+                    _cues.AddRange(result.Cues);
                 RefreshText();
                 _status.Text = string.Format(L.T("转写完成，共 {0} 段。音频仅在本机处理。"), _cues.Count);
             }

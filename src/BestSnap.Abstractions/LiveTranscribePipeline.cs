@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,7 +21,13 @@ namespace BestSnap.Plugins
         public List<TranscriptCue> Cues { get; set; } = new List<TranscriptCue>();
         public int Processed { get; set; }
         public int Skipped { get; set; }
+        public int TimedOut { get; set; }
+        public int Dropped { get; set; }
         public double CommittedThrough { get; set; }
+        public double MaxDecodeSeconds { get; set; }
+        public double MaxDecodeRatio { get; set; }
+        public double DurationSeconds { get; set; }
+        public List<WindowDecodeReport> Reports { get; set; } = new List<WindowDecodeReport>();
     }
 
     /// <summary>
@@ -29,18 +36,22 @@ namespace BestSnap.Plugins
     /// </summary>
     public static class LiveTranscribePipeline
     {
-        public static List<LivePcmWindow> SlicePcm(short[] pcm, int sampleRate = AudioPcm.WhisperRate, bool includeTail = true)
+        public static List<LivePcmWindow> SlicePcm(short[] pcm, int sampleRate = AudioPcm.WhisperRate, bool includeTail = true,
+            double firstWindow = -1, double window = -1, double overlap = -1)
         {
             var list = new List<LivePcmWindow>();
             if (pcm == null || pcm.Length == 0 || sampleRate < 1) return list;
-            int maxRing = (int)(LiveChunkMath.WindowSeconds * sampleRate) + sampleRate;
+            if (firstWindow <= 0) firstWindow = LiveChunkMath.FirstWindowSeconds;
+            if (window <= 0) window = LiveChunkMath.WindowSeconds;
+            if (overlap < 0) overlap = LiveChunkMath.OverlapSeconds;
+            int maxRing = (int)(window * sampleRate) + sampleRate;
             int index = 0;
             while (true)
             {
-                long fire = (long)Math.Round(LiveChunkMath.FireAt(index) * sampleRate);
+                long fire = (long)Math.Round(LiveChunkMath.FireAt(index, firstWindow, window, overlap) * sampleRate);
                 if (fire > pcm.Length) break;
                 int elapsed = (int)fire;
-                int want = (int)Math.Round(LiveChunkMath.WindowForIndex(index) * sampleRate);
+                int want = (int)Math.Round(LiveChunkMath.WindowForIndex(index, firstWindow, window) * sampleRate);
                 if (want < sampleRate / 4) want = sampleRate / 4;
                 int ringLen = Math.Min(elapsed, maxRing);
                 int take = Math.Min(want, ringLen);
@@ -49,7 +60,7 @@ namespace BestSnap.Plugins
                 list.Add(new LivePcmWindow
                 {
                     Index = index,
-                    AbsStart = LiveChunkMath.ChunkAbsStart(index),
+                    AbsStart = LiveChunkMath.ChunkAbsStart(index, window, overlap, firstWindow),
                     Pcm = snap
                 });
                 index++;
@@ -65,7 +76,7 @@ namespace BestSnap.Plugins
                     list.Add(new LivePcmWindow
                     {
                         Index = index,
-                        AbsStart = LiveChunkMath.ChunkAbsStart(Math.Max(0, index)),
+                        AbsStart = LiveChunkMath.ChunkAbsStart(Math.Max(0, index), window, overlap, firstWindow),
                         Pcm = snap,
                         IsTail = true
                     });
@@ -103,43 +114,121 @@ namespace BestSnap.Plugins
             Func<LivePcmWindow, string, CancellationToken, Task<List<TranscriptCue>>> transcribe,
             Action<string> log,
             Func<int, short[], string> dumpWav,
-            CancellationToken ct)
+            CancellationToken ct,
+            double firstWindow = -1, double window = -1, double overlap = -1, bool live = true,
+            Action<IReadOnlyList<TranscriptCue>> onCues = null)
+        {
+            async Task<WhisperDecodeResult> Wrap(LivePcmWindow w, string prev, CancellationToken token)
+            {
+                var cues = await transcribe(w, prev, token).ConfigureAwait(false);
+                return new WhisperDecodeResult { Cues = cues ?? new List<TranscriptCue>(), KeptCues = cues == null ? 0 : cues.Count };
+            }
+            return await RunDetailedAsync(pcm, Wrap, log, dumpWav, ct, firstWindow, window, overlap, live, onCues).ConfigureAwait(false);
+        }
+
+        public static async Task<LivePipelineResult> RunDetailedAsync(
+            short[] pcm,
+            Func<LivePcmWindow, string, CancellationToken, Task<WhisperDecodeResult>> transcribe,
+            Action<string> log,
+            Func<int, short[], string> dumpWav,
+            CancellationToken ct,
+            double firstWindow = -1, double window = -1, double overlap = -1, bool live = true,
+            Action<IReadOnlyList<TranscriptCue>> onCues = null)
         {
             var result = new LivePipelineResult();
             if (pcm == null || pcm.Length == 0 || transcribe == null) return result;
-            double floor = 0, committed = 0;
-            foreach (var w in SlicePcm(pcm))
+            result.DurationSeconds = pcm.Length / (double)AudioPcm.WhisperRate;
+            var windows = SlicePcm(pcm, AudioPcm.WhisperRate, includeTail: true, firstWindow, window, overlap);
+            var state = new DecodeState();
+            foreach (var w in windows)
             {
                 ct.ThrowIfCancellationRequested();
-                bool voiced = EvaluateVad(w.Pcm, ref floor, out double rms, out double thresh);
-                if (!voiced)
-                {
-                    result.Skipped++;
-                    log?.Invoke($"chunk {w.Index} skipped silent rms={rms:F5} thresh={thresh:F5} floor={floor:F5} samples={w.Pcm.Length} abs={w.AbsStart:F2}");
-                    continue;
-                }
-                result.Processed++;
-                if (dumpWav != null)
-                {
-                    string path = dumpWav(w.Index, w.Pcm);
-                    if (!string.IsNullOrEmpty(path))
-                        log?.Invoke($"chunk {w.Index} dump {path}");
-                }
-                log?.Invoke($"chunk {w.Index} process rms={rms:F5} thresh={thresh:F5} samples={w.Pcm.Length} abs={w.AbsStart:F2} dur={w.DurationSeconds:F2}");
-                string previous = LastCueText(result.Cues);
-                var rel = await transcribe(w, previous, ct).ConfigureAwait(false) ?? new List<TranscriptCue>();
-                log?.Invoke($"chunk {w.Index} decode cues={rel.Count}");
-                for (int i = 0; i < rel.Count; i++)
-                    log?.Invoke($"  cue[{i}] {rel[i].Start:F3}-{rel[i].End:F3} '{WhisperDecode.Trunc(rel[i].Text, 80)}'");
-                var added = LiveChunkMath.Stitch(rel, w.AbsStart, committed, w.DurationSeconds);
-                log?.Invoke($"chunk {w.Index} stitch in={rel.Count} out={added.Count} committed={committed:F2}");
-                for (int i = 0; i < added.Count; i++)
-                    log?.Invoke($"  stitched[{i}] {added[i].Start:F3}-{added[i].End:F3} '{WhisperDecode.Trunc(added[i].Text, 80)}'");
-                result.Cues.AddRange(added);
-                committed = LiveChunkMath.ExtendCommitted(added, committed);
-                result.CommittedThrough = committed;
+                await DecodeWindowAsync(w, transcribe, log, dumpWav, ct, live, result, state, 0, 0, onCues).ConfigureAwait(false);
             }
             return result;
+        }
+
+        sealed class DecodeState
+        {
+            public double Floor;
+            public double Committed;
+        }
+
+        static async Task DecodeWindowAsync(
+            LivePcmWindow w,
+            Func<LivePcmWindow, string, CancellationToken, Task<WhisperDecodeResult>> transcribe,
+            Action<string> log,
+            Func<int, short[], string> dumpWav,
+            CancellationToken ct,
+            bool live,
+            LivePipelineResult result,
+            DecodeState state,
+            int queueBefore, int queueAfter,
+            Action<IReadOnlyList<TranscriptCue>> onCues)
+        {
+            var report = new WindowDecodeReport
+            {
+                Index = w.Index, AbsStart = w.AbsStart, Duration = w.DurationSeconds,
+                QueueBefore = queueBefore, QueueAfter = queueAfter
+            };
+            bool voiced = EvaluateVad(w.Pcm, ref state.Floor, out double rms, out double thresh);
+            if (!voiced)
+            {
+                result.Skipped++;
+                report.Voiced = false;
+                result.Reports.Add(report);
+                log?.Invoke($"chunk {w.Index} skipped silent rms={rms:F5} thresh={thresh:F5} samples={w.Pcm.Length} abs={w.AbsStart:F2} q={queueBefore}->{queueAfter}");
+                return;
+            }
+            result.Processed++;
+            report.Voiced = true;
+            if (dumpWav != null)
+            {
+                string path = dumpWav(w.Index, w.Pcm);
+                if (!string.IsNullOrEmpty(path))
+                    log?.Invoke($"chunk {w.Index} dump {path}");
+            }
+            log?.Invoke($"chunk {w.Index} process rms={rms:F5} thresh={thresh:F5} samples={w.Pcm.Length} abs={w.AbsStart:F2} dur={w.DurationSeconds:F2} q={queueBefore}->{queueAfter}");
+            string previous = LastCueText(result.Cues);
+            WhisperDecodeResult dec;
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                dec = await transcribe(w, previous, ct).ConfigureAwait(false) ?? new WhisperDecodeResult();
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                dec = new WhisperDecodeResult { TimedOut = true, RetryPath = "timeout" };
+            }
+            if (dec.ElapsedSeconds <= 0) dec.ElapsedSeconds = sw.Elapsed.TotalSeconds;
+            dec.Cues ??= new List<TranscriptCue>();
+            report.ElapsedSeconds = dec.ElapsedSeconds;
+            report.TimedOut = dec.TimedOut;
+            report.Raw = dec.RawSegments;
+            report.Kept = dec.KeptCues;
+            report.Backend = dec.Backend.ToString();
+            report.RetryPath = dec.RetryPath;
+            if (dec.ElapsedSeconds > result.MaxDecodeSeconds) result.MaxDecodeSeconds = dec.ElapsedSeconds;
+            double ratio = w.DurationSeconds > 0 ? dec.ElapsedSeconds / w.DurationSeconds : 0;
+            if (ratio > result.MaxDecodeRatio) result.MaxDecodeRatio = ratio;
+            if (dec.TimedOut)
+            {
+                result.TimedOut++;
+                log?.Invoke($"chunk {w.Index} TIMEOUT elapsed={dec.ElapsedSeconds:F2}s budget={WhisperDecodeBudget.TimeoutSeconds(w.DurationSeconds, live):F1}s backend={dec.Backend} path={dec.RetryPath}");
+                result.Reports.Add(report);
+                return;
+            }
+            log?.Invoke($"chunk {w.Index} decode cues={dec.Cues.Count} raw={dec.RawSegments} kept={dec.KeptCues} elapsed={dec.ElapsedSeconds:F2}s backend={dec.Backend} path={dec.RetryPath}");
+            for (int i = 0; i < dec.Cues.Count; i++)
+                log?.Invoke($"  cue[{i}] {dec.Cues[i].Start:F3}-{dec.Cues[i].End:F3} '{WhisperDecode.Trunc(dec.Cues[i].Text, 80)}'");
+            var added = LiveChunkMath.Stitch(dec.Cues, w.AbsStart, state.Committed, w.DurationSeconds);
+            report.Stitched = added.Count;
+            log?.Invoke($"chunk {w.Index} stitch in={dec.Cues.Count} out={added.Count} committed={state.Committed:F2}");
+            result.Cues.AddRange(added);
+            state.Committed = LiveChunkMath.ExtendCommitted(added, state.Committed);
+            result.CommittedThrough = state.Committed;
+            result.Reports.Add(report);
+            if (added.Count > 0) onCues?.Invoke(added);
         }
     }
 }

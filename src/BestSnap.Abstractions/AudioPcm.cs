@@ -60,6 +60,33 @@ namespace BestSnap.Plugins
             return Math.Sqrt(acc / n);
         }
 
+        /// <summary>
+        /// Repeat <paramref name="speech"/> with <paramref name="gapSeconds"/> of silence until the
+        /// buffer is at least <paramref name="targetMinutes"/> long (16 kHz mono). Used by --transcribe-test.
+        /// </summary>
+        public static short[] RepeatWithSilence(short[] speech, double gapSeconds, double targetMinutes, int sampleRate = WhisperRate)
+        {
+            speech ??= Array.Empty<short>();
+            if (sampleRate < 1) sampleRate = WhisperRate;
+            if (double.IsNaN(targetMinutes) || targetMinutes <= 0) return (short[])speech.Clone();
+            int want = (int)Math.Round(targetMinutes * 60.0 * sampleRate);
+            if (want < 1) return (short[])speech.Clone();
+            int gap = (int)Math.Round(Math.Max(0, gapSeconds) * sampleRate);
+            if (speech.Length == 0) return new short[want];
+            var dst = new short[want];
+            int pos = 0;
+            while (pos < want)
+            {
+                int n = Math.Min(speech.Length, want - pos);
+                Array.Copy(speech, 0, dst, pos, n);
+                pos += n;
+                if (pos >= want) break;
+                int z = Math.Min(gap, want - pos);
+                pos += z;
+            }
+            return dst;
+        }
+
         /// <summary>int16 PCM → float32 in [-1, 1] for Whisper.net <c>ProcessAsync</c>.</summary>
         public static float[] ToFloat32(short[] pcm)
         {

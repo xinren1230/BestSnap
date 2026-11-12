@@ -175,6 +175,8 @@ namespace BestSnap.Plugins
         public string PreviousText { get; set; }
         /// <summary>Live chunks skip beam search (greedy is reliable on CUDA q5_0).</summary>
         public bool Live { get; set; }
+        /// <summary>Reuse one WhisperProcessor across windows (live + sliced files).</summary>
+        public bool ReuseProcessor { get; set; }
     }
 
     public static class WhisperDecode

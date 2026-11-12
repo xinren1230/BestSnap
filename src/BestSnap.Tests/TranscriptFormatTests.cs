@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BestSnap.Plugins;
 using Xunit;
@@ -108,6 +109,20 @@ namespace BestSnap.Tests
             Assert.Equal("hello", cue.Text);
             Assert.Equal(3.5, cue.Start, 3);
             Assert.Equal(7.0, cue.End, 3);
+        }
+
+        [Fact]
+        public void FileChunk_ThirtySecondWindowsWithTwoSecondOverlap()
+        {
+            Assert.Equal(30, FileChunkMath.WindowSeconds);
+            Assert.Equal(2, FileChunkMath.OverlapSeconds);
+            Assert.Equal(28, FileChunkMath.HopSeconds);
+            var pcm = new short[90 * AudioPcm.WhisperRate];
+            var windows = FileChunkMath.SlicePcm(pcm);
+            Assert.True(windows.Count >= 3);
+            Assert.Equal(0, windows[0].AbsStart, 3);
+            Assert.InRange(windows[0].DurationSeconds, 29, 31);
+            Assert.Equal(28, windows[1].AbsStart, 3);
         }
 
         [Fact]

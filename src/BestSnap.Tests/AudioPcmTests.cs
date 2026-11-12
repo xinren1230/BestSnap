@@ -71,6 +71,17 @@ namespace BestSnap.Tests
         }
 
         [Fact]
+        public void RepeatWithSilence_ReachesTargetMinutes()
+        {
+            var speech = new short[AudioPcm.WhisperRate]; // 1 s
+            for (int i = 0; i < speech.Length; i++) speech[i] = 8000;
+            var stretched = AudioPcm.RepeatWithSilence(speech, gapSeconds: 2, targetMinutes: 0.1);
+            Assert.Equal((int)(0.1 * 60 * AudioPcm.WhisperRate), stretched.Length);
+            Assert.Equal(8000, stretched[0]);
+            Assert.Equal(0, stretched[AudioPcm.WhisperRate]); // gap
+        }
+
+        [Fact]
         public void ToFloat32_NormalizesInt16ToUnitRange()
         {
             var f = AudioPcm.ToFloat32(new short[] { 0, 32767, -32768, 16384 });

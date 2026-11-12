@@ -91,6 +91,86 @@ namespace BestSnap.Tests
             Assert.Empty(result.Cues);
         }
 
+        static short[] StretchJfk(double minutes) =>
+            AudioPcm.RepeatWithSilence(AudioPcm.Mono16kFromWavFile(JfkPath()), 2, minutes);
+
+        static Task<WhisperDecodeResult> FastCue(LivePcmWindow chunk, double elapsed) =>
+            Task.FromResult(new WhisperDecodeResult
+            {
+                Cues = new List<TranscriptCue> { new TranscriptCue { Start = 0, End = 1, Text = "And so my fellow Americans " + chunk.Index } },
+                KeptCues = 1,
+                RawSegments = 1,
+                ElapsedSeconds = elapsed,
+                ChunkDuration = chunk.DurationSeconds,
+                RetryPath = "float32"
+            });
+
+        [Fact]
+        public async Task StretchTenMinutes_LiveSimKeepsCuesInSecondHalfAndStaysUnder3x()
+        {
+            var pcm = StretchJfk(10);
+            Assert.True(pcm.Length >= 10 * 60 * AudioPcm.WhisperRate);
+            var result = await LiveTranscribePipeline.RunDetailedAsync(pcm, (chunk, prev, ct) => FastCue(chunk, 0.05), null, null, CancellationToken.None);
+            Assert.True(result.Processed >= 2);
+            Assert.True(result.DurationSeconds >= 10 * 60 - 1);
+            Assert.True(result.MaxDecodeRatio < 3);
+            Assert.Null(WhisperDecodeBudget.SelfTestFailure(result.Reports, result.Cues, result.DurationSeconds));
+            Assert.False(WhisperDecodeBudget.CuesMissingInSecondHalf(result.Cues, result.DurationSeconds));
+        }
+
+        [Fact]
+        public async Task StretchTenMinutes_FileWindowsStreamAndStayUnder3x()
+        {
+            var pcm = StretchJfk(10);
+            var result = await LiveTranscribePipeline.RunDetailedAsync(
+                pcm, (chunk, prev, ct) => FastCue(chunk, 0.2), null, null, CancellationToken.None,
+                firstWindow: FileChunkMath.WindowSeconds, window: FileChunkMath.WindowSeconds,
+                overlap: FileChunkMath.OverlapSeconds, live: false);
+            Assert.True(result.Processed >= 2);
+            Assert.Contains(result.Reports, r => r.Duration >= 20);
+            Assert.Null(WhisperDecodeBudget.SelfTestFailure(result.Reports, result.Cues, result.DurationSeconds));
+        }
+
+        [Fact]
+        public async Task StretchTenMinutes_FailsIfChunkExceeds3xDuration()
+        {
+            var pcm = StretchJfk(10);
+            var result = await LiveTranscribePipeline.RunDetailedAsync(pcm, (chunk, prev, ct) =>
+                FastCue(chunk, chunk.DurationSeconds * 4), null, null, CancellationToken.None);
+            string fail = WhisperDecodeBudget.SelfTestFailure(result.Reports, result.Cues, result.DurationSeconds);
+            Assert.Contains("3x", fail);
+        }
+
+        [Fact]
+        public async Task StretchTenMinutes_FailsIfCuesStopInSecondHalf()
+        {
+            var pcm = StretchJfk(10);
+            double mid = pcm.Length / (double)AudioPcm.WhisperRate / 2;
+            var result = await LiveTranscribePipeline.RunDetailedAsync(pcm, (chunk, prev, ct) =>
+            {
+                if (chunk.AbsStart >= mid)
+                    return Task.FromResult(new WhisperDecodeResult { ElapsedSeconds = 0.05, RetryPath = "float32" });
+                return FastCue(chunk, 0.05);
+            }, null, null, CancellationToken.None);
+            Assert.Contains("second half", WhisperDecodeBudget.SelfTestFailure(result.Reports, result.Cues, result.DurationSeconds));
+        }
+
+        [Fact]
+        public async Task DecodeTimeout_SkipsWindowAndKeepsGoing()
+        {
+            var pcm = AudioPcm.Mono16kFromWavFile(JfkPath());
+            int n = 0;
+            var result = await LiveTranscribePipeline.RunDetailedAsync(pcm, (chunk, prev, ct) =>
+            {
+                n++;
+                if (n == 1)
+                    return Task.FromResult(new WhisperDecodeResult { TimedOut = true, ElapsedSeconds = 26, RetryPath = "timeout" });
+                return FastCue(chunk, 0.05);
+            }, null, null, CancellationToken.None);
+            Assert.True(result.TimedOut >= 1);
+            Assert.NotEmpty(result.Cues);
+        }
+
         [Fact]
         public void DebugDump_Writes16kHzMonoWav()
         {

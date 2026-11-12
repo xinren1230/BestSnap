@@ -26,7 +26,8 @@ namespace BestSnap.Services
         readonly List<short> _sysLeftover = new List<short>();
         readonly List<short> _ring = new List<short>();
         readonly List<TranscriptCue> _cues = new List<TranscriptCue>();
-        readonly ConcurrentQueue<(short[] Pcm, double AbsStart)> _jobs = new ConcurrentQueue<(short[], double)>();
+        readonly BoundedJobQueue<(short[] Pcm, double AbsStart, int Index)> _jobs =
+            new BoundedJobQueue<(short[], double, int)>(WhisperDecodeBudget.LiveMaxPending);
         readonly object _cueLock = new object();
         CancellationTokenSource _cts;
         Task _worker;
@@ -39,6 +40,8 @@ namespace BestSnap.Services
         int _chunkIndex;
         int _processed;
         int _skipped;
+        int _dropped;
+        int _timedOut;
         int _silentStreak;
         bool _reportedFail;
         int _generation;
@@ -118,12 +121,14 @@ namespace BestSnap.Services
             _ring.Clear();
             _micLeftover.Clear(); _sysLeftover.Clear();
             Drain(_micQ); Drain(_sysQ);
-            while (_jobs.TryDequeue(out _)) { }
+            _jobs.Clear();
             _elapsedSamples = 0;
             _committed = 0;
             _chunkIndex = 0;
             _processed = 0;
             _skipped = 0;
+            _dropped = 0;
+            _timedOut = 0;
             _silentStreak = 0;
             _reportedFail = false;
             _noiseFloor = 0;
@@ -251,7 +256,15 @@ namespace BestSnap.Services
                         var snap = new short[take];
                         _ring.CopyTo(_ring.Count - take, snap, 0, take);
                         double absStart = LiveChunkMath.ChunkAbsStart(_chunkIndex);
-                        _jobs.Enqueue((snap, absStart));
+                        int dropped;
+                        int depth = _jobs.EnqueueNewest((snap, absStart, _chunkIndex), out dropped);
+                        if (dropped > 0)
+                        {
+                            _dropped += dropped;
+                            Logger.Info($"Live queue drop oldest dropped={dropped} totalDropped={_dropped} depth={depth} abs={absStart:F2} idx={_chunkIndex} lagHops={WhisperDecodeBudget.LiveMaxLagHops}");
+                        }
+                        else
+                            Logger.Info($"Live queue enqueue idx={_chunkIndex} abs={absStart:F2} depth={depth} pendingMax={_jobs.MaxPending}");
                         _chunkIndex++;
                         _nextFire = (long)Math.Round(LiveChunkMath.FireAt(_chunkIndex) * AudioPcm.WhisperRate);
                     }
@@ -272,7 +285,9 @@ namespace BestSnap.Services
                         continue;
                     }
                     if (gen != _generation) break;
-                    await TranscribeChunk(job.Pcm, job.AbsStart, ct).ConfigureAwait(false);
+                    int qBefore = _jobs.Count + 1;
+                    int qAfter = _jobs.Count;
+                    await TranscribeChunk(job.Pcm, job.AbsStart, job.Index, qBefore, qAfter, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) { }
@@ -285,9 +300,10 @@ namespace BestSnap.Services
             }
         }
 
-        async Task TranscribeChunk(short[] pcm, double absStart, CancellationToken ct)
+        async Task TranscribeChunk(short[] pcm, double absStart, int index, int queueBefore, int queueAfter, CancellationToken ct)
         {
             if (pcm == null || pcm.Length == 0) return;
+            double chunkDur = pcm.Length / (double)AudioPcm.WhisperRate;
             double rms = AudioPcm.Rms(pcm);
             double thresh = AudioPcm.VoiceGate.Threshold(_noiseFloor);
             bool voiced = rms >= thresh;
@@ -296,7 +312,7 @@ namespace BestSnap.Services
             {
                 _skipped++;
                 _silentStreak++;
-                Logger.Info($"Live chunk skipped silent skipped={_skipped} processed={_processed} rms={rms:F5} thresh={thresh:F5} floor={_noiseFloor:F5} samples={pcm.Length}");
+                Logger.Info($"Live chunk skipped silent idx={index} skipped={_skipped} processed={_processed} dropped={_dropped} q={queueBefore}->{queueAfter}->{_jobs.Count} rms={rms:F5} thresh={thresh:F5} floor={_noiseFloor:F5} samples={pcm.Length} abs={absStart:F2}");
                 if (_cues.Count == 0)
                 {
                     string listen = L.T("正在聆听…（尚未检测到语音）");
@@ -308,7 +324,7 @@ namespace BestSnap.Services
             }
             _silentStreak = 0;
             _processed++;
-            Logger.Info($"Live chunk process processed={_processed} skipped={_skipped} rms={rms:F5} thresh={thresh:F5} samples={pcm.Length} abs={absStart:F2} dur={pcm.Length / (double)AudioPcm.WhisperRate:F2}");
+            Logger.Info($"Live chunk process idx={index} processed={_processed} skipped={_skipped} dropped={_dropped} q={queueBefore}->{queueAfter} rms={rms:F5} thresh={thresh:F5} samples={pcm.Length} abs={absStart:F2} dur={chunkDur:F2}");
             if (WhisperDebugChunks.Enabled)
             {
                 try
@@ -326,14 +342,16 @@ namespace BestSnap.Services
                 Language = _language,
                 Prompt = _userPrompt,
                 PreviousText = previous,
-                Live = true
+                Live = true,
+                ReuseProcessor = true
             };
-            List<TranscriptCue> rel;
+            WhisperDecodeResult dec;
             try
             {
-                rel = await WhisperTranscriber.TranscribeSamplesAsync(pcm, _modelId, decode, null, ct).ConfigureAwait(false);
+                dec = await WhisperTranscriber.TranscribeSamplesDetailedAsync(pcm, _modelId, WhisperTranscriber.LastPick?.Backend ?? WhisperBackend.Cpu, decode, null, ct).ConfigureAwait(false)
+                    ?? new WhisperDecodeResult();
             }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException) { ClearTranscribingStatus(); return; }
             catch (Exception ex)
             {
                 Logger.Error("LiveChunk", ex);
@@ -345,22 +363,34 @@ namespace BestSnap.Services
                 }
                 return;
             }
-            if (rel == null) rel = new List<TranscriptCue>();
-            Logger.Info($"Live chunk raw/kept cues={rel.Count} processed={_processed}");
-            for (int i = 0; i < rel.Count; i++)
-                Logger.Info($"Live cue[{i}] {rel[i].Start:F3}-{rel[i].End:F3} '{WhisperDecode.Trunc(rel[i].Text, 80)}'");
+            dec.Cues ??= new List<TranscriptCue>();
+            int qAfterDecode = _jobs.Count;
+            Logger.Info($"Live chunk decode idx={index} elapsed={dec.ElapsedSeconds:F2}s dur={chunkDur:F2}s q={queueBefore}->{queueAfter}->{qAfterDecode} backend={dec.Backend} path={dec.RetryPath} raw={dec.RawSegments} kept={dec.KeptCues} dropped={_dropped} timeout={dec.TimedOut} recreate={dec.RecreatedFactory} epoch={dec.Epoch}");
+            if (dec.TimedOut)
+            {
+                _timedOut++;
+                Logger.Info($"Live chunk TIMEOUT idx={index} elapsed={dec.ElapsedSeconds:F2}s budget={WhisperDecodeBudget.TimeoutSeconds(chunkDur, true):F1}s timedOut={_timedOut} — skip window, keep listening");
+                ClearTranscribingStatus();
+                return;
+            }
+            for (int i = 0; i < dec.Cues.Count; i++)
+                Logger.Info($"Live cue[{i}] {dec.Cues[i].Start:F3}-{dec.Cues[i].End:F3} '{WhisperDecode.Trunc(dec.Cues[i].Text, 80)}'");
             List<TranscriptCue> added;
             string caption = "";
-            double chunkDur = pcm.Length / (double)AudioPcm.WhisperRate;
             lock (_cueLock)
             {
-                added = LiveChunkMath.Stitch(rel, absStart, _committed, chunkDur);
+                added = LiveChunkMath.Stitch(dec.Cues, absStart, _committed, chunkDur);
                 _cues.AddRange(added);
                 _committed = LiveChunkMath.ExtendCommitted(added, _committed);
                 if (_cues.Count > 0) caption = _cues[_cues.Count - 1].Text;
             }
-            Logger.Info($"Live stitch in={rel.Count} out={added.Count} committed={_committed:F2} total={_cues.Count} caption='{WhisperDecode.Trunc(caption, 80)}'");
+            Logger.Info($"Live stitch idx={index} in={dec.Cues.Count} out={added.Count} committed={_committed:F2} total={_cues.Count} caption='{WhisperDecode.Trunc(caption, 80)}' qAfter={_jobs.Count}");
             if (added.Count > 0) Raise(() => Caption?.Invoke(caption));
+            ClearTranscribingStatus();
+        }
+
+        void ClearTranscribingStatus()
+        {
             if (IsPaused) SetStatus(L.T("已暂停（不保存音频）"));
             else if (_cues.Count == 0) SetStatus(L.T("正在聆听…（尚未检测到语音）"));
             else SetStatus(L.T("仅转写中（不保存音频）"));
@@ -484,12 +514,12 @@ namespace BestSnap.Services
             var cts = _cts;
             var worker = _worker;
             try { cts?.Cancel(); } catch { }
-            try { worker?.Wait(15000); } catch { }
+            try { worker?.Wait(40000); } catch { }
             try { cts?.Dispose(); } catch { }
             _cts = null; _worker = null;
             if (tail != null)
             {
-                try { TranscribeChunk(tail, tailStart, CancellationToken.None).GetAwaiter().GetResult(); }
+                try { TranscribeChunk(tail, tailStart, Math.Max(0, _chunkIndex), 0, 0, CancellationToken.None).GetAwaiter().GetResult(); }
                 catch (Exception ex) { Logger.Error("LiveTail", ex); }
             }
             var prev = _session.Phase;
@@ -497,7 +527,7 @@ namespace BestSnap.Services
             if (failed) _session.MarkFailed();
             else _session.MarkFinished();
             LogSession(failed ? "failed" : "finished");
-            Logger.Info($"Live stop processed={_processed} skipped={_skipped} failed={failed} cues={_cues.Count}");
+            Logger.Info($"Live stop processed={_processed} skipped={_skipped} dropped={_dropped} timedOut={_timedOut} failed={failed} cues={_cues.Count}");
             SetStatus(failed ? L.T("转写失败") : L.T("转写已停止（未保存音频）"));
             if (failed)
             {

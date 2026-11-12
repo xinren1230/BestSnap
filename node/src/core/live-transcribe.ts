@@ -3,7 +3,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chunkAbsStart, FIRST_WINDOW_SECONDS, stitch, WINDOW_SECONDS, extendCommitted } from "./live-chunk.js";
+import { chunkAbsStart, dropOldestCount, FIRST_WINDOW_SECONDS, LIVE_MAX_PENDING, stitch, timeoutSeconds, WINDOW_SECONDS, extendCommitted } from "./live-chunk.js";
 import { localAppDataDir } from "./paths.js";
 import { composeWhisperPrompt, type TranscriptCue } from "./transcript.js";
 import { parseNvidiaSmi, pickWhisper } from "./whisper-auto.js";
@@ -67,8 +67,14 @@ export class LiveTranscribe {
   private async drain(): Promise<void> {
     if (this.paused || !this.dir || !fs.existsSync(this.dir)) return;
     const files = fs.readdirSync(this.dir).filter((n) => n.endsWith(".wav")).sort();
-    // keep the newest (in-progress) file; transcribe completed ones
-    for (const n of files.slice(0, Math.max(0, files.length - 1))) {
+    // keep the newest (in-progress) file; transcribe at most LIVE_MAX_PENDING completed ones
+    const completed = files.slice(0, Math.max(0, files.length - 1));
+    const drop = dropOldestCount(completed.length, LIVE_MAX_PENDING);
+    for (const n of completed.slice(0, drop)) {
+      try { fs.unlinkSync(path.join(this.dir, n)); } catch { /* ignore */ }
+      this.index++;
+    }
+    for (const n of completed.slice(drop)) {
       const f = path.join(this.dir, n);
       try {
         await this.transcribeFile(f, chunkAbsStart(this.index));
@@ -110,7 +116,7 @@ export class LiveTranscribe {
       let out = "";
       p.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
       p.on("close", () => resolve(out));
-      setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* ignore */ } resolve(out); }, 20000);
+      setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* ignore */ } resolve(out); }, timeoutSeconds(WINDOW_SECONDS, true) * 1000);
     });
     const incoming: TranscriptCue[] = [];
     const t = text.trim();

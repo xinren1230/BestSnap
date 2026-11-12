@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace BestSnap.Plugins
 {
@@ -13,6 +14,7 @@ namespace BestSnap.Plugins
         public bool LiveSim { get; set; }
         public bool DebugChunks { get; set; }
         public string Out { get; set; }
+        public double StretchMinutes { get; set; }
 
         public static bool LooksLike(string[] args)
         {
@@ -66,6 +68,12 @@ namespace BestSnap.Plugins
                         break;
                     case "--out":
                         o.Out = Next();
+                        break;
+                    case "--stretch-minutes":
+                        if (!double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out double minutes)
+                            || minutes < 0)
+                            throw new ArgumentException("--stretch-minutes needs a non-negative number");
+                        o.StretchMinutes = minutes;
                         break;
                     case "--tray":
                         break;
