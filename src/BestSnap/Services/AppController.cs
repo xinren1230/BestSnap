@@ -20,6 +20,7 @@ namespace BestSnap.Services
         private readonly HotkeyService _hotkeys = new HotkeyService();
         private readonly RecorderService _recorder = new RecorderService();
         private readonly AudioRecorderService _audio = new AudioRecorderService();
+        private readonly LiveTranscribeService _live = new LiveTranscribeService();
         private WinForms.NotifyIcon _tray;
         private CaptureMode? _lastMode;
         private Int32Rect? _lastRect;
@@ -45,8 +46,23 @@ namespace BestSnap.Services
             _recorder.Failed += OnRecordingFailed;
             _recorder.RegionClipped += dev => Logger.Info("Recording region clipped to " + dev);
             RegisterHotkeys();
+            RecoverTempRecordings();
             if (S.ShowToolbarOnStartup) ShowToolbar();
             UiDemo();
+        }
+
+        void RecoverTempRecordings()
+        {
+            try
+            {
+                var folder = TempRecordingStore.EnsureFolder(AppPaths.LocalData);
+                TempRecordingStore.Cleanup(folder, TempRecordingStore.DefaultMaxAge, DateTime.UtcNow);
+                var ready = TempRecordingStore.ListReady(folder);
+                if (ready.Count == 0) return;
+                Notify(string.Format(L.T("发现 {0} 个未保存的临时录音。"), ready.Count));
+                new RecordingDoneWindow(ready[ready.Count - 1], _settings).Show();
+            }
+            catch (Exception ex) { Logger.Error("TempRecover", ex); }
         }
 
         /// <summary>Dev aid for UI screenshots: BESTSNAP_UI_DEMO=&lt;png&gt; (or legacy SNAPFORGE_UI_DEMO) opens the editor and the quick bar on that image at startup.</summary>
@@ -277,6 +293,7 @@ namespace BestSnap.Services
             m.Items.Add(new WinForms.ToolStripSeparator());
             Add(L.T("开始/停止录屏"), ToggleRecording);
             Add(L.T("录制音频…"), ShowAudioRecorder);
+            Add(L.T("仅转写（不保存音频）…"), ShowLiveTranscribe);
             Add(L.T("屏幕取色器"), ShowColorPicker);
             Add(L.T("屏幕放大镜"), ToggleMagnifier);
             Add(L.T("屏幕标尺"), ShowRuler);
@@ -361,8 +378,40 @@ namespace BestSnap.Services
         private RecordingControlBar _recBar;
         private bool _recDialogOpen;
 
+        public bool IsAnyRecording => _recorder.IsRecording || _audio.IsRecording || _live.IsRunning;
+
+        public void StopAnyRecording()
+        {
+            if (_recorder.IsRecording) _recorder.Stop();
+            else if (_audio.IsRecording) _audio.Stop();
+            else if (_live.IsRunning) _live.Stop();
+        }
+
+        public void ShowLiveTranscribe()
+        {
+            if (_live.IsRunning) { _liveWin?.Activate(); return; }
+            ShowAudioRecorder(liveOnly: true);
+        }
+
+        public void StartLiveTranscribe(AudioRecordingSettings opts)
+        {
+            if (_live.IsRunning) { _liveWin?.Activate(); return; }
+            if (_recorder.IsRecording || _audio.IsRecording)
+                throw new InvalidOperationException(L.T("请先停止当前录制。"));
+            _liveWin = new LiveCaptionWindow(_live, _settings);
+            _liveWin.Closed += (o, e) => _liveWin = null;
+            _liveWin.Show();
+            try { _live.Start(opts, S.WhisperModel); }
+            catch
+            {
+                try { _liveWin.Close(); } catch { }
+                throw;
+            }
+        }
+
         public void ToggleRecording()
         {
+            if (_live.IsRunning) { _live.Stop(); return; }
             if (_recorder.IsRecording) { _recorder.Stop(); return; }
             if (_recDialogOpen || _busy) return;
             _recDialogOpen = true;
@@ -414,13 +463,10 @@ namespace BestSnap.Services
         private void OnRecordingCompleted(string file)
         {
             CloseRecBar();
-            Notify(L.T("录屏已保存: ") + file);
+            try { TempRecordingStore.MarkComplete(file, DateTime.UtcNow); } catch { }
+            Notify(L.T("录屏已完成（尚未保存）") + ": " + file);
             if (_exiting) return;
-            new RecordingDoneWindow(file).Show();
-            if ((_settings.Current.Recording?.TrimAfterRecording ?? false)
-                && File.Exists(file)
-                && TrimRangeMath.CanTrimPath(file))
-                new TrimWindow(file).Show();
+            new RecordingDoneWindow(file, _settings).Show();
         }
 
         private void OnRecordingFailed(string error)
@@ -511,17 +557,19 @@ namespace BestSnap.Services
 
         /// <summary>Exit safely: if recording, stop and wait (max 5 s) for the MP4 to be finalised first.</summary>
         AudioRecorderWindow _audioWin;
-        public void ShowAudioRecorder()
+        LiveCaptionWindow _liveWin;
+        public void ShowAudioRecorder() => ShowAudioRecorder(false);
+        public void ShowAudioRecorder(bool liveOnly)
         {
-            if (_audioWin != null) { _audioWin.Activate(); return; }
-            _audioWin = new AudioRecorderWindow(_settings, _audio);
+            if (_audioWin != null) { _audioWin.Activate(); if (liveOnly) _audioWin.SetLiveOnly(true); return; }
+            _audioWin = new AudioRecorderWindow(_settings, _audio, liveOnly);
             _audioWin.Closed += (o, e) => _audioWin = null;
             _audioWin.Show();
         }
 
         public void RequestExit()
         {
-            if (!_recorder.IsRecording && !_audio.IsRecording) { Application.Current.Shutdown(); return; }
+            if (!_recorder.IsRecording && !_audio.IsRecording && !_live.IsRunning) { Application.Current.Shutdown(); return; }
             _exiting = true;
             Notify(L.T("正在结束录屏并保存，请稍候…"));
             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
@@ -530,10 +578,13 @@ namespace BestSnap.Services
             _recorder.Failed += _ => Done();
             _audio.Completed += _ => Done();
             _audio.Failed += _ => Done();
+            _live.Stopped += Done;
+            _live.Failed += _ => Done();
             timer.Tick += (o, e) => { Logger.Info("Exit: recorder did not finish within 5 s"); Done(); };
             timer.Start();
             if (_recorder.IsRecording) _recorder.Stop();
             if (_audio.IsRecording) _audio.Stop();
+            if (_live.IsRunning) _live.Stop();
         }
 
         public void Dispose()
@@ -541,6 +592,7 @@ namespace BestSnap.Services
             _timed.Stop();
             _hotkeys.Dispose();
             try { _audio.Dispose(); } catch { }
+            try { _live.Dispose(); } catch { }
             if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         }
     }

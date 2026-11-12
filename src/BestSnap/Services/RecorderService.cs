@@ -156,11 +156,14 @@ namespace BestSnap.Services
             if (IsRecording) return;
             HasStarted = false;
             var o = req.Options;
-            string folder = string.IsNullOrWhiteSpace(o.SaveFolder) ? defaultFolder : o.SaveFolder;
-            Directory.CreateDirectory(folder);
             bool gif = o.Format == RecordFormat.Gif;
-            CurrentFile = !string.IsNullOrWhiteSpace(req.OutputPath) ? req.OutputPath
-                : Path.Combine(folder, "Rec_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + (gif ? ".gif" : ".mp4"));
+            if (!string.IsNullOrWhiteSpace(req.OutputPath))
+                CurrentFile = req.OutputPath;
+            else
+            {
+                string folder = TempRecordingStore.EnsureFolder(AppPaths.LocalData);
+                CurrentFile = TempRecordingStore.NewMediaPath(folder, "Rec", gif ? ".gif" : ".mp4", DateTime.UtcNow);
+            }
             var outDir = Path.GetDirectoryName(CurrentFile); if (!string.IsNullOrEmpty(outDir)) Directory.CreateDirectory(outDir);
             if (gif) { StartGif(req); return; }
 

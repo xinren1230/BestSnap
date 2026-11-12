@@ -52,6 +52,42 @@ namespace BestSnap.Services
 
         public static bool Available => Find() != null;
 
+        public static async Task ExtractWav16kAsync(string input, string output, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(input) || !File.Exists(input))
+                throw new FileNotFoundException(input);
+            var ff = Find() ?? throw new InvalidOperationException(L.T("未找到 ffmpeg。请安装 ffmpeg 并将其加入 PATH 后再剪辑 MP4/MP3。"));
+            var dir = Path.GetDirectoryName(output);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            var args = new List<string> { "-y", "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", output };
+            await RunAsync(ff, args, ct).ConfigureAwait(false);
+            if (!File.Exists(output) || new FileInfo(output).Length == 0)
+                throw new InvalidOperationException(L.T("未能从录音提取音频。"));
+        }
+
+        static async Task RunAsync(string ff, List<string> args, CancellationToken ct)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = ff,
+                UseShellExecute = false,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true,
+            };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            using var p = new Process { StartInfo = psi };
+            var err = new StringBuilder();
+            p.ErrorDataReceived += (s, e) => { if (e.Data != null) err.AppendLine(e.Data); };
+            if (!p.Start()) throw new InvalidOperationException("ffmpeg start failed");
+            p.BeginErrorReadLine();
+            p.BeginOutputReadLine();
+            using (ct.Register(() => { try { if (!p.HasExited) p.Kill(true); } catch { } }))
+                await p.WaitForExitAsync(ct).ConfigureAwait(false);
+            if (p.ExitCode != 0)
+                throw new InvalidOperationException("ffmpeg: " + err.ToString().Trim());
+        }
+
         public static async Task CutAsync(string input, string output, IReadOnlyList<TimeRange> keep, bool video, bool audio, IProgress<double> progress, CancellationToken ct)
         {
             if (keep == null || keep.Count == 0) throw new InvalidOperationException(L.T("没有可保留的片段。"));

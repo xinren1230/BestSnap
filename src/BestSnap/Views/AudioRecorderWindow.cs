@@ -25,6 +25,12 @@ namespace BestSnap.Views
         readonly ProgressBar _sysBar = new ProgressBar { Height = 12, Minimum = 0, Maximum = 1 };
         readonly RadioButton _fWav = new RadioButton { Content = L.T("WAV 无损"), GroupName = "afmt" };
         readonly RadioButton _fMp3 = new RadioButton { Content = L.T("MP3"), GroupName = "afmt" };
+        readonly CheckBox _liveOnly = new CheckBox { Content = L.T("仅转写（不保存音频）"), Margin = new Thickness(0, 12, 0, 0) };
+        readonly TextBlock _liveHint = new TextBlock
+        {
+            Text = L.T("仅转写：音频不会保存，只保留在内存中的短片段并在转写后立即丢弃。"),
+            FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(180, 83, 9)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0)
+        };
         readonly TextBox _folder = new TextBox { MinWidth = 220 };
         readonly Button _start = new Button { Content = L.T("开始"), Width = 72, Height = 32, Margin = new Thickness(0, 0, 8, 0) };
         readonly Button _pause = new Button { Content = L.T("暂停"), Width = 72, Height = 32, Margin = new Thickness(0, 0, 8, 0) };
@@ -34,7 +40,7 @@ namespace BestSnap.Views
         readonly DispatcherTimer _tick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
         readonly Stopwatch _sw = new Stopwatch();
 
-        public AudioRecorderWindow(SettingsService svc, AudioRecorderService rec)
+        public AudioRecorderWindow(SettingsService svc, AudioRecorderService rec, bool liveOnly = false)
         {
             _svc = svc; _rec = rec;
             var o = AudioRecordingSettings.Normalize(svc.Current.AudioRecording, svc.Current.SaveFolder);
@@ -70,11 +76,17 @@ namespace BestSnap.Views
             g.Children.Add(new TextBlock { Text = L.T("电平"), FontSize = 11, Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 2) });
             g.Children.Add(_sysBar);
             g.Children.Add(_rMix);
+            g.Children.Add(_liveOnly);
+            g.Children.Add(_liveHint);
             g.Children.Add(new TextBlock { Text = L.T("格式"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
             var fmt = new StackPanel { Orientation = Orientation.Horizontal }; fmt.Children.Add(_fWav); _fMp3.Margin = new Thickness(16, 0, 0, 0); fmt.Children.Add(_fMp3);
             g.Children.Add(fmt);
-            g.Children.Add(new TextBlock { Text = L.T("保存到"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
+            g.Children.Add(new TextBlock { Text = L.T("保存到（点保存时使用）"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
             g.Children.Add(fp);
+            _liveOnly.IsChecked = liveOnly;
+            _liveOnly.Checked += (s, e) => ApplyLiveUi();
+            _liveOnly.Unchecked += (s, e) => ApplyLiveUi();
+            ApplyLiveUi();
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 16, 0, 0) };
             foreach (var b in new[] { _start, _pause, _resume, _stop })
@@ -144,6 +156,20 @@ namespace BestSnap.Views
             _svc.Save();
         }
 
+        public void SetLiveOnly(bool on)
+        {
+            _liveOnly.IsChecked = on;
+            ApplyLiveUi();
+        }
+
+        void ApplyLiveUi()
+        {
+            bool live = _liveOnly.IsChecked == true;
+            _liveHint.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            _fWav.IsEnabled = _fMp3.IsEnabled = _folder.IsEnabled = !live && !_rec.IsRecording;
+            Title = (live ? L.T("仅转写（不保存音频）") : L.T("音频录制")) + " - " + AppIdentity.Name;
+        }
+
         void Begin()
         {
             if (_rec.IsRecording) return;
@@ -151,6 +177,12 @@ namespace BestSnap.Views
             {
                 var o = ReadOpts();
                 Persist();
+                if (_liveOnly.IsChecked == true)
+                {
+                    App.Controller.StartLiveTranscribe(o);
+                    Close();
+                    return;
+                }
                 _sw.Reset();
                 _rec.Start(o, o.SaveFolder);
                 Sync();
@@ -168,13 +200,14 @@ namespace BestSnap.Views
             _pause.IsEnabled = rec && !paused;
             _resume.IsEnabled = rec && paused;
             _stop.IsEnabled = rec;
-            _rMic.IsEnabled = _rSys.IsEnabled = _rMix.IsEnabled = _fWav.IsEnabled = _fMp3.IsEnabled = _folder.IsEnabled = !rec;
+            _rMic.IsEnabled = _rSys.IsEnabled = _rMix.IsEnabled = _liveOnly.IsEnabled = !rec;
+            ApplyLiveUi();
         }
 
         void OnDone(string file)
         {
             _sw.Stop(); Sync();
-            new RecordingDoneWindow(file).Show();
+            new RecordingDoneWindow(file, _svc).Show();
         }
 
         void OnFail(string err)

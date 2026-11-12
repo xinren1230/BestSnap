@@ -37,6 +37,8 @@
     <PackageReference Include="ScreenRecorderLib" Version="6.6.0" />
     <!-- MIT. WASAPI capture/loopback + Media Foundation MP3 encode (no extra native libs). -->
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Whisper.net" Version="1.8.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />
     <!-- Core decoder only (no image bindings); fed raw BGRA bytes. -->
     <PackageReference Include="ZXing.Net" Version="0.16.9" />
     <!-- LaTeX preview in the formula result window (MIT) -->

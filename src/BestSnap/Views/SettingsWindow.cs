@@ -173,6 +173,9 @@ namespace BestSnap.Views
             var trb = new Button { Content = L.T("翻译服务设置…"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 2, 10, 2) };
             trb.Click += (s, e) => new TranslateSettingsWindow { Owner = this }.ShowDialog();
             Row(gOcr, L.T("OCR 翻译"), trb);
+            var stt = new Button { Content = L.T("转写与摘要设置…"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 2, 10, 2) };
+            stt.Click += (s, e) => new TranscriptionSettingsWindow { Owner = this }.ShowDialog();
+            Row(gOcr, L.T("转写 / 摘要"), stt);
 
             var gOcrA = NewGrid();
             Row(gOcrA, "", new TextBlock

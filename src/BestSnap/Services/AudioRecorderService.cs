@@ -72,15 +72,21 @@ namespace BestSnap.Services
             _useMic = opts.Source != AudioRecordSourceKind.System;
             _useSys = opts.Source != AudioRecordSourceKind.Microphone;
             if (!_useMic && !_useSys) throw new InvalidOperationException(L.T("请选择至少一个音频来源。"));
-            string folder = AudioPcm.CoalesceFolder(opts.SaveFolder, defaultFolder);
-            if (string.IsNullOrWhiteSpace(folder)) folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), AppIdentity.Name);
-            Directory.CreateDirectory(folder);
+            string folder = TempRecordingStore.EnsureFolder(AppPaths.LocalData);
             _format = opts.Format;
             _micVol = opts.MicVolume;
             _sysVol = opts.SystemVolume;
-            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            _wavPath = Path.Combine(folder, "Audio_" + stamp + ".wav");
-            _finalPath = _format == AudioRecordFileFormat.Mp3 ? Path.Combine(folder, "Audio_" + stamp + ".mp3") : _wavPath;
+            var utc = DateTime.UtcNow;
+            if (_format == AudioRecordFileFormat.Mp3)
+            {
+                _finalPath = TempRecordingStore.NewMediaPath(folder, "Audio", ".mp3", utc);
+                _wavPath = _finalPath + ".pre.wav";
+            }
+            else
+            {
+                _wavPath = TempRecordingStore.NewMediaPath(folder, "Audio", ".wav", utc);
+                _finalPath = _wavPath;
+            }
             CurrentFile = _finalPath;
             HasStarted = false;
             _paused = false;
@@ -123,7 +129,7 @@ namespace BestSnap.Services
             Raise(Started);
         }
 
-        static MMDevice FindDevice(string id, DataFlow flow)
+        internal static MMDevice FindDevice(string id, DataFlow flow)
         {
             if (string.IsNullOrWhiteSpace(id)) return null;
             try
@@ -255,6 +261,7 @@ namespace BestSnap.Services
                         try { File.Delete(wav); } catch { }
                 }
                 CurrentFile = final;
+                TempRecordingStore.MarkComplete(final, DateTime.UtcNow);
                 RaiseCompleted(final);
             }
             catch (Exception ex)

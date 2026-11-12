@@ -99,6 +99,36 @@ namespace BestSnap.Plugins
             return ResampleLinear(stereo, 2, srcRate, TargetRate);
         }
 
+        public const int WhisperRate = 16000;
+
+        /// <summary>Packed PCM → 16 kHz mono 16-bit (Whisper input).</summary>
+        public static short[] ToMono16k(byte[] src, int bytesRecorded, int srcRate, int srcChannels, int srcBits, bool ieeeFloat = false)
+        {
+            if (src == null || bytesRecorded <= 0 || srcChannels < 1 || srcRate < 1)
+                return Array.Empty<short>();
+            int bytesPerFrame = srcChannels * (srcBits / 8);
+            if (bytesPerFrame <= 0) return Array.Empty<short>();
+            int frames = bytesRecorded / bytesPerFrame;
+            if (frames <= 0) return Array.Empty<short>();
+            var mono = new short[frames];
+            for (int f = 0; f < frames; f++)
+            {
+                int off = f * bytesPerFrame;
+                short l = ReadSample(src, off, srcBits, ieeeFloat);
+                short r = srcChannels > 1 ? ReadSample(src, off + srcBits / 8, srcBits, ieeeFloat) : l;
+                mono[f] = (short)((l + r) / 2);
+            }
+            if (srcRate == WhisperRate) return mono;
+            return ResampleLinear(mono, 1, srcRate, WhisperRate);
+        }
+
+        public static bool HasVoice(short[] samples, double rmsThreshold = 0.012)
+        {
+            if (samples == null || samples.Length == 0) return false;
+            if (double.IsNaN(rmsThreshold) || rmsThreshold < 0) rmsThreshold = 0;
+            return Rms(samples) >= rmsThreshold;
+        }
+
         static short ReadSample(byte[] src, int offset, int bits, bool ieeeFloat)
         {
             if (offset < 0 || offset >= src.Length) return 0;
@@ -190,6 +220,28 @@ namespace BestSnap.Plugins
             var hdr = WavHeader(bytes.Length, sampleRate, channels, 16);
             stream.Write(hdr, 0, hdr.Length);
             stream.Write(bytes, 0, bytes.Length);
+        }
+
+        public static byte[] ToWavBytes(short[] interleaved, int sampleRate, int channels)
+        {
+            using var ms = new MemoryStream();
+            WriteWav(ms, interleaved, sampleRate, channels);
+            return ms.ToArray();
+        }
+
+        /// <summary>PCM WAV file → 16 kHz mono 16-bit samples (Whisper). Returns empty if not PCM WAV.</summary>
+        public static short[] Mono16kFromWavFile(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return Array.Empty<short>();
+            using var fs = File.OpenRead(path);
+            if (!TryReadPcmWav(fs, out int rate, out int ch, out int bits, out long dataPos, out int dataBytes))
+                return Array.Empty<short>();
+            if (dataBytes <= 0 || bits < 8) return Array.Empty<short>();
+            int n = Math.Min(dataBytes, int.MaxValue - 16);
+            var buf = new byte[n];
+            fs.Position = dataPos;
+            int got = fs.Read(buf, 0, n);
+            return ToMono16k(buf, got, rate, ch, bits);
         }
 
         public static string NormalizeSource(string s)

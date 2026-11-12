@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -17,6 +17,10 @@ import { canTrimPath, defaultOutputPath, isAudioPath, keepFromRemove } from "../
 import { cut as ffmpegCut } from "../core/ffmpeg-cut.js";
 import { uploadFile } from "../core/uploaders.js";
 import { appRoot, ensureMigrated, userDataDir } from "../core/paths.js";
+import * as tempRec from "../core/temp-recordings.js";
+import { toSrt, toTxt, type TranscriptCue } from "../core/transcript.js";
+import { extractiveMarkdown } from "../core/summarize.js";
+import { findWhisper, LiveTranscribe } from "../core/live-transcribe.js";
 
 ensureMigrated();
 try {
@@ -180,6 +184,7 @@ function createTray(): void {
       { type: "separator" },
       { label: "开始/停止录屏", click: () => void toggleRecord() },
       { label: "录制音频…", click: () => openView("audio") },
+      { label: "仅转写（不保存音频）…", click: () => openView("audio", { live: "1" }) },
       { type: "separator" },
       { label: "历史", click: () => openView("history") },
       { label: "设置", click: () => openView("settings") },
@@ -597,7 +602,10 @@ async function toggleRecord(): Promise<void> {
     recorder = null;
     toolbar?.webContents.send("recording", { on: false });
     toolbar?.show();
-    if (file) openView("done", { file });
+    if (file) {
+      try { tempRec.markComplete(file); } catch { /* ignore */ }
+      openView("done", { file });
+    }
     return;
   }
   const src = settings.recording.source || "Monitor";
@@ -616,10 +624,9 @@ let lastRecordFile = "";
 
 async function beginRecord(region?: { x: number; y: number; w: number; h: number }): Promise<void> {
   toolbar?.hide();
-  const folder = settings.recording.saveFolder || path.join(os.homedir(), "Videos", "BestSnap");
-  fs.mkdirSync(folder, { recursive: true });
+  const folder = tempRec.ensureFolder();
   const ext = settings.recording.format === "Gif" ? ".gif" : ".mp4";
-  const out = path.join(folder, `Rec_${Date.now()}${ext}`);
+  const out = tempRec.newMediaPath(folder, "Rec", ext);
   lastRecordFile = out;
   recorder = new Recorder();
   let r = region;
@@ -813,6 +820,7 @@ process.on("unhandledRejection", (e) => console.error("unhandled", e));
 app.whenReady().then(async () => {
   console.log("BestSnap ready demo=", isDemo, "argv=", process.argv.join(" "));
   migrateAutostart();
+  try { tempRec.cleanup(tempRec.ensureFolder()); } catch { /* ignore */ }
   spawnWorker();
   if (isDemo) {
     prepareLiveDemo();
@@ -902,11 +910,84 @@ ipcMain.handle("open:external", (_e, url: string) => {
 });
 ipcMain.handle("windows:list", () => listWindows());
 ipcMain.handle("record:toggle", () => toggleRecord());
+ipcMain.handle("record:audioTemp", async (_e, opts: { mic?: boolean; system?: boolean; format?: string }) => {
+  const folder = tempRec.ensureFolder();
+  const ext = opts.format === "Mp3" ? ".mp3" : ".wav";
+  const out = tempRec.newMediaPath(folder, "Audio", ext);
+  if (audioRecorder) await audioRecorder.stop();
+  audioRecorder = new AudioRecorder();
+  await audioRecorder.start({ out, mic: opts.mic, system: opts.system });
+  lastRecordFile = out;
+  return out;
+});
 ipcMain.handle("record:audioStart", async (_e, opts: { out: string; mic?: boolean; system?: boolean; micDevice?: string; systemDevice?: string }) => {
   if (audioRecorder) await audioRecorder.stop();
   audioRecorder = new AudioRecorder();
   await audioRecorder.start(opts);
   return opts.out;
+});
+ipcMain.handle("record:saveAs", async (_e, file: string) => {
+  if (!file || !fs.existsSync(file)) return null;
+  const r = await dialog.showSaveDialog({ defaultPath: path.join(settings.recording.saveFolder || os.homedir(), path.basename(file)) });
+  if (r.canceled || !r.filePath) return null;
+  fs.copyFileSync(file, r.filePath);
+  if (tempRec.isUnder(file, tempRec.folder()) && path.resolve(file) !== path.resolve(r.filePath)) tempRec.deletePair(file);
+  return r.filePath;
+});
+
+let liveSession: LiveTranscribe | null = null;
+ipcMain.handle("live:start", async (_e, opts: { mic?: boolean; system?: boolean }) => {
+  if (liveSession) await liveSession.stop();
+  liveSession = new LiveTranscribe();
+  await liveSession.start(opts);
+  toolbar?.webContents.send("recording", { on: true });
+  return true;
+});
+ipcMain.handle("live:pause", () => liveSession?.pause());
+ipcMain.handle("live:resume", () => liveSession?.resume());
+ipcMain.handle("live:stop", async () => {
+  const cues = liveSession ? await liveSession.stop() : [];
+  liveSession = null;
+  toolbar?.webContents.send("recording", { on: false });
+  return cues;
+});
+ipcMain.handle("transcript:txt", (_e, cues: TranscriptCue[]) => toTxt(cues || []));
+ipcMain.handle("transcript:srt", (_e, cues: TranscriptCue[]) => toSrt(cues || []));
+ipcMain.handle("transcript:summarize", (_e, cues: TranscriptCue[]) => extractiveMarkdown(cues || []));
+ipcMain.handle("transcript:save", async (_e, payload: { cues: TranscriptCue[]; ext: string }) => {
+  const body = payload.ext === ".srt" ? toSrt(payload.cues || []) : toTxt(payload.cues || []);
+  const r = await dialog.showSaveDialog({ defaultPath: path.join(os.homedir(), "transcript" + (payload.ext || ".txt")) });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, body);
+  return r.filePath;
+});
+ipcMain.handle("transcript:saveMd", async (_e, md: string) => {
+  const r = await dialog.showSaveDialog({ defaultPath: path.join(os.homedir(), "summary.md") });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, md || "");
+  return r.filePath;
+});
+ipcMain.handle("transcript:file", async (_e, file: string) => {
+  const bin = findWhisper();
+  if (!bin) throw new Error("未找到 whisper-cli。请安装 whisper.cpp 后重试；音频仅在本机处理。");
+  const wav = file + ".16k.wav";
+  await new Promise<void>((resolve, reject) => {
+    const p = spawn("ffmpeg", ["-y", "-i", file, "-ac", "1", "-ar", "16000", "-vn", wav], { stdio: ["ignore", "ignore", "pipe"] });
+    p.on("close", (c) => (c === 0 ? resolve() : reject(new Error("ffmpeg extract failed"))));
+  });
+  try {
+    const text = await new Promise<string>((resolve, reject) => {
+      const p = spawn(bin, ["-f", wav, "-nt"], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      p.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+      p.on("close", () => resolve(out));
+      p.on("error", reject);
+    });
+    const t = text.trim();
+    return t ? [{ start: 0, end: 1, text: t.replace(/\s+/g, " ") }] : [];
+  } finally {
+    try { fs.unlinkSync(wav); } catch { /* ignore */ }
+  }
 });
 ipcMain.handle("record:audioStop", async () => {
   if (!audioRecorder) return null;

@@ -50,6 +50,8 @@ namespace BestSnap.Services
             if (s.Recording == null) s.Recording = d.Recording;
             s.AudioRecording = AudioRecordingSettings.Normalize(s.AudioRecording, s.SaveFolder);
             if (s.Formula == null) s.Formula = d.Formula;
+            if (s.Chat == null) s.Chat = d.Chat;
+            if (string.IsNullOrWhiteSpace(s.WhisperModel)) s.WhisperModel = WhisperModels.DefaultId;
             if (s.Watermark == null) s.Watermark = d.Watermark;
             else
             {

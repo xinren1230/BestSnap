@@ -1,6 +1,6 @@
 # BestSnap（Node.js / Linux）
 
-Windows 版 BestSnap 的 Linux 移植：离线中英文 OCR（PP-OCRv4）、公式 → LaTeX（pix2text-mfr）、截图、标注编辑、二维码、录屏、录音、录后剪辑。  
+Windows 版 BestSnap 的 Linux 移植：离线中英文 OCR（PP-OCRv4）、公式 → LaTeX（pix2text-mfr）、截图、标注编辑、二维码、录屏、录音、录后剪辑、仅转写（不保存音频）。  
 界面用 Electron，引擎和 CLI 是普通 Node.js（`onnxruntime-node`），可在无显示器的机器上跑识别。
 
 许可证 [Apache-2.0](../LICENSE)。第三方组件保留原许可，见 [licenses/THIRD-PARTY-NOTICES.txt](licenses/THIRD-PARTY-NOTICES.txt)。功能对照：[FEATURES.md](FEATURES.md)。

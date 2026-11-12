@@ -19,7 +19,7 @@ async function toolbar() {
     <button id="btn-region" data-m="region" title="矩形区域">▢</button>
     <button id="btn-window" data-m="window" title="窗口/对象">▣</button>
     <button id="btn-full" data-m="full" title="全屏">⛶</button>
-    <button id="btn-record" data-m="record" title="录屏">●</button>
+    <button id="btn-record" data-m="record" title="录制">●</button>
     <button class="more" id="more">更多 ▾</button>
     <button id="btn-hide" data-a="hide" title="最小化到托盘">—</button>
   </div>`);
@@ -42,12 +42,19 @@ async function toolbar() {
     <button data-a="open">打开图片到编辑器</button>
     <button data-a="timed">定时截图…</button>
     <button data-a="audio">录制音频…</button>
+    <button data-a="live">仅转写（不保存音频）…</button>
     <button data-a="stitch">拼接长图…</button>
     <button data-a="compare">图片对比…</button>
     <div class="hr"></div>
     <button data-a="settings">设置</button>
   </div>`);
+  const recMenu = el(`<div class="menu hidden" id="rec-menu">
+    <button data-rec="screen">屏幕录制…</button>
+    <button data-rec="audio">录制音频…</button>
+    <button data-rec="live">仅转写（不保存音频）…</button>
+  </div>`);
   bar.appendChild(menu);
+  bar.appendChild(recMenu);
   app.appendChild(bar);
   let drag = null;
   bar.querySelector(".logo").addEventListener("mousedown", (e) => { drag = { x: e.screenX, y: e.screenY }; });
@@ -60,6 +67,7 @@ async function toolbar() {
   sf.on("recording", (m) => {
     const rec = document.getElementById("btn-record");
     if (rec) rec.classList.toggle("rec-on", !!(m && m.on));
+    recMenu.dataset.on = m && m.on ? "1" : "0";
   });
   bar.addEventListener("click", async (e) => {
     const b = e.target.closest("button");
@@ -71,7 +79,15 @@ async function toolbar() {
     }
     menu.classList.add("hidden");
     await sf.invoke("toolbar:menu", false);
-    if (b.dataset.m === "record") return sf.invoke("record:toggle");
+    if (b.dataset.m === "record") {
+      const on = recMenu.dataset.on === "1";
+      if (on) return sf.invoke("record:toggle");
+      recMenu.classList.toggle("hidden");
+      return;
+    }
+    if (b.dataset.rec === "screen") { recMenu.classList.add("hidden"); return sf.invoke("record:toggle"); }
+    if (b.dataset.rec === "audio") { recMenu.classList.add("hidden"); return sf.invoke("view:open", "audio"); }
+    if (b.dataset.rec === "live") { recMenu.classList.add("hidden"); return sf.invoke("view:open", "audio", { live: "1" }); }
     if (b.dataset.m === "repeat") return sf.invoke("capture:start", "region");
     if (b.dataset.m) return sf.invoke("capture:start", b.dataset.m);
     const a = b.dataset.a;
@@ -83,6 +99,7 @@ async function toolbar() {
     if (a === "ruler") return sf.invoke("capture:start", "ruler");
     if (a === "timed") return sf.invoke("capture:start", "timed");
     if (a === "audio") return sf.invoke("view:open", "audio");
+    if (a === "live") return sf.invoke("view:open", "audio", { live: "1" });
     if (a === "stitch") return sf.invoke("view:open", "stitch");
     if (a === "compare") return sf.invoke("view:open", "compare");
     if (a === "open") return sf.invoke("view:open", "editor");
@@ -756,20 +773,65 @@ function backdropView() {
 
 async function doneView() {
   document.documentElement.style.background = "#f6f6f7";
-  const file = q.get("file") || "";
-  const plan = await sf.invoke("trim:plan", file);
+  let file = q.get("file") || "";
+  const live = q.get("live") === "1";
+  const plan = file ? await sf.invoke("trim:plan", file) : { canTrim: false };
   app.className = "page";
-  app.innerHTML = `<h1>录制完成</h1>
-    <p>文件已保存到：</p>
+  app.innerHTML = `<h1>${live ? "仅转写（不保存音频）" : "录制完成"}</h1>
+    <p id="banner">${live ? "音频未保存。可复制或导出文本。" : "录音尚未保存到你的文件夹。关闭前请点“保存”。"}</p>
     <p><code id="p">${file}</code></p>
     <p>
-      <button id="folder">打开文件夹</button>
-      <button id="open">打开文件</button>
+      <button id="folder" ${file ? "" : "disabled"}>打开文件夹</button>
+      <button id="open" ${file ? "" : "disabled"}>打开文件</button>
       <button id="trim" ${plan.canTrim ? "" : "disabled"}>剪辑</button>
-    </p>`;
+      <button id="save" ${live ? "disabled" : ""}>保存</button>
+    </p>
+    <p>
+      <button id="tx">转写</button>
+      <button id="copy">复制</button>
+      <button id="txt">保存 .txt</button>
+      <button id="srt">保存 .srt</button>
+      <button id="sum">摘要</button>
+      <button id="md">保存 .md</button>
+    </p>
+    <pre id="out" style="white-space:pre-wrap;max-height:280px;overflow:auto;background:#fff;padding:10px"></pre>
+    <p id="st"></p>`;
+  const st = (t) => { document.getElementById("st").textContent = t; };
   document.getElementById("folder").onclick = () => sf.invoke("shell:show", file);
   document.getElementById("open").onclick = () => sf.invoke("shell:open", file);
   document.getElementById("trim").onclick = () => sf.invoke("view:open", "trim", { file });
+  document.getElementById("save").onclick = async () => {
+    const dest = await sf.invoke("record:saveAs", file);
+    if (dest) { file = dest; document.getElementById("p").textContent = dest; st("已保存: " + dest); }
+  };
+  let cues = [];
+  try { cues = JSON.parse(q.get("cues") || "[]"); } catch { cues = []; }
+  const render = (text) => { document.getElementById("out").textContent = text; };
+  if (cues.length) render(await sf.invoke("transcript:txt", cues));
+  document.getElementById("tx").onclick = async () => {
+    if (live) { st("音频未保存。"); return; }
+    st("正在本机转写…");
+    try {
+      cues = await sf.invoke("transcript:file", file);
+      render(await sf.invoke("transcript:txt", cues));
+      st("转写完成，共 " + cues.length + " 段。音频仅在本机处理。");
+    } catch (e) { st(String(e)); }
+  };
+  document.getElementById("copy").onclick = async () => {
+    const t = document.getElementById("out").textContent || "";
+    await sf.invoke("clipboard:writeText", t);
+    st("已复制。");
+  };
+  document.getElementById("txt").onclick = () => sf.invoke("transcript:save", { cues, ext: ".txt" });
+  document.getElementById("srt").onclick = () => sf.invoke("transcript:save", { cues, ext: ".srt" });
+  document.getElementById("sum").onclick = async () => {
+    st("正在生成本机摘要…");
+    const md = await sf.invoke("transcript:summarize", cues);
+    render(md);
+    st("本机抽取式摘要完成。");
+    document.getElementById("md").onclick = () => sf.invoke("transcript:saveMd", md);
+  };
+  document.getElementById("md").onclick = () => sf.invoke("transcript:saveMd", document.getElementById("out").textContent || "");
 }
 
 async function audioView() {
@@ -777,12 +839,15 @@ async function audioView() {
   const s = await sf.invoke("settings:get");
   app.className = "page";
   const folder = (s.audioRecording && s.audioRecording.saveFolder) || "";
+  const liveStart = q.get("live") === "1";
   app.innerHTML = `<h1>音频录制</h1>
     <div class="grid">
       <label>来源</label><select id="src"><option value="Microphone">麦克风</option><option value="System">系统声音</option><option value="Mix">麦克风 + 系统声音</option></select>
       <label>格式</label><select id="fmt"><option>Wav</option><option>Mp3</option></select>
       <label>保存文件夹</label><input id="dir" value="${folder}" />
     </div>
+    <p><label><input type="checkbox" id="live" ${liveStart ? "checked" : ""}/> 仅转写（不保存音频）</label></p>
+    <p style="color:#b45309">仅转写：音频不会保存，只保留在内存中的短片段并在转写后立即丢弃。</p>
     <p>
       <button id="start">开始</button>
       <button id="pause">暂停</button>
@@ -797,17 +862,34 @@ async function audioView() {
     const src = document.getElementById("src").value;
     const fmt = document.getElementById("fmt").value;
     const dir = document.getElementById("dir").value;
-    const ext = fmt === "Mp3" ? ".mp3" : ".wav";
-    const out = dir + "/Audio_" + Date.now() + ext;
+    const live = document.getElementById("live").checked;
     await sf.invoke("settings:save", { ...s, audioRecording: { ...(s.audioRecording||{}), source: src, format: fmt, saveFolder: dir } });
-    await sf.invoke("record:audioStart", { out, mic: src !== "System", system: src !== "Microphone" });
+    if (live) {
+      rec = true;
+      document.getElementById("st").textContent = "仅转写中（不保存音频）";
+      await sf.invoke("live:start", { mic: src !== "System", system: src !== "Microphone" });
+      return;
+    }
+    const out = await sf.invoke("record:audioTemp", { mic: src !== "System", system: src !== "Microphone", format: fmt });
     rec = true;
     document.getElementById("st").textContent = out;
   };
-  document.getElementById("pause").onclick = () => sf.invoke("record:audioPause");
-  document.getElementById("resume").onclick = () => sf.invoke("record:audioResume");
+  document.getElementById("pause").onclick = () => {
+    if (document.getElementById("live").checked) return sf.invoke("live:pause");
+    return sf.invoke("record:audioPause");
+  };
+  document.getElementById("resume").onclick = () => {
+    if (document.getElementById("live").checked) return sf.invoke("live:resume");
+    return sf.invoke("record:audioResume");
+  };
   document.getElementById("stop").onclick = async () => {
     if (!rec) return;
+    if (document.getElementById("live").checked) {
+      const cues = await sf.invoke("live:stop");
+      rec = false;
+      sf.invoke("view:open", "done", { live: "1", cues: JSON.stringify(cues || []) });
+      return;
+    }
     await sf.invoke("record:audioStop");
     rec = false;
     const file = document.getElementById("st").textContent;

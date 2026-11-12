@@ -28,6 +28,8 @@ namespace BestSnap.Plugins
         public static string History => Path.Combine(LocalData, "History");
         public static string RuntimeRoot => Path.Combine(LocalData, "runtime");
         public static string JitProfile => Path.Combine(LocalData, "Profile");
+        public static string TempRecordings => Path.Combine(LocalData, "temp", "recordings");
+        public static string WhisperModels => Path.Combine(LocalData, "models", "whisper");
 
         public static void EnsureMigrated()
         {

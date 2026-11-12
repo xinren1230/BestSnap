@@ -50,8 +50,10 @@ Node 版目录：`node/`（Electron + TypeScript + 无头 CLI）。目标环境�
 | 录屏来源：区域 / 单屏 / 全部显示器 / 窗口 | 完整 | 部分 | Linux：x11grab 区域或虚拟桌面；开录前藏 UI（无 WDA_EXCLUDEFROMCAPTURE） |
 | 录屏 GIF | 完整 | 完整 | ffmpeg paletteuse |
 | 系统声 / 麦克风 / 音量 | 完整 | 部分 | Pulse `ffmpeg -f pulse`（无 Pulse 则无声）；系统声用 `.monitor` 环回 |
-| 纯音频录制 WAV/MP3 | NAudio WASAPI | 替代 | ffmpeg pulse；混音 `amix`；完成后弹出路径对话框 |
-| 录后完成对话框（路径 / 打开文件夹 / 打开文件 / 剪辑） | 完整 | 完整 | Linux 用 `shell.showItemInFolder` |
+| 纯音频录制 WAV/MP3 | NAudio WASAPI | 替代 | ffmpeg pulse；混音 `amix`；先写临时文件再另存 |
+| 录后完成对话框（预览 / 保存 / 打开 / 剪辑 / 转写 / 摘要） | 完整 | 完整 | Linux 用 `shell.showItemInFolder`；转写需本机 `whisper-cli` |
+| 仅转写（不保存音频） | Whisper.net 滚动块 | 部分 | ffmpeg pulse 分段 WAV，转写后立即删除；有 whisper-cli 才出字幕 |
+| 本机转写 / 摘要 | Whisper.net + 可插拔 LLM | 部分 | 摘要用本机 TextRank；Whisper 模型不随 Linux 包分发 |
 | 剪辑中间剪切 | ffmpeg / 原生 WAV / WinRT 回退 | 替代 | ffmpeg `filter_complex` concat 重编码；需本机 ffmpeg |
 | 摄像头 PIP | WinRT MediaCapture | 替代 | 未默认打开；可用 ffmpeg v4l2 自行叠加。无圆形气泡窗 |
 | 按键/点击叠层 | 低级钩子 | 部分 | Linux 全局键鼠钩子需 root/input 组，默认关闭以免进录像隐私 |

@@ -39,7 +39,7 @@ namespace BestSnap.Views
             var logo = new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Assets/logo_24.png")), Width = 22, Height = 22, Margin = new Thickness(4, 0, 6, 0), Cursor = Cursors.SizeAll, ToolTip = L.T("BestSnap（拖动移动工具栏）") };
             panel.Children.Add(logo);
 
-            void Btn(string glyph, string tip, Action a, UIElement badge = null)
+            Button Btn(string glyph, string tip, Action a, UIElement badge = null)
             {
                 var g = new Grid();
                 g.Children.Add(new TextBlock { Text = glyph, FontFamily = IconFont, FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
@@ -47,12 +47,29 @@ namespace BestSnap.Views
                 var b = new Button { Content = g, ToolTip = tip, Width = 30, Height = 28, Margin = new Thickness(1), Foreground = Brushes.White, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand, Style = FlatStyle };
                 b.Click += (o, e) => a();
                 panel.Children.Add(b);
+                return b;
             }
 
             Btn("\uE7A8", L.T("矩形区域截图") + SmartUi.Key("Region"), () => ctl.Capture(CaptureMode.Region));
             Btn("\uE8B3", L.T("截取窗口/对象") + SmartUi.Key("WindowObject"), () => ctl.Capture(CaptureMode.WindowObject));
             Btn("\uE740", L.T("全屏截图") + SmartUi.Key("FullScreen"), () => ctl.Capture(CaptureMode.FullScreen));
-            Btn("\uE7C8", L.T("开始/停止录屏") + SmartUi.Key("Recorder"), ctl.ToggleRecording);
+            Button recBtn = null;
+            recBtn = Btn("\uE7C8", L.T("开始/停止录屏") + SmartUi.Key("Recorder"), () =>
+            {
+                if (ctl.IsAnyRecording) { ctl.StopAnyRecording(); return; }
+                var recMenu = new ContextMenu();
+                void RecItem(string header, Action a)
+                {
+                    var mi = new MenuItem { Header = L.T(header) };
+                    mi.Click += (s, e) => a();
+                    recMenu.Items.Add(mi);
+                }
+                RecItem("屏幕录制…", ctl.ToggleRecording);
+                RecItem("录制音频…", ctl.ShowAudioRecorder);
+                RecItem("仅转写（不保存音频）…", ctl.ShowLiveTranscribe);
+                recMenu.PlacementTarget = recBtn;
+                recMenu.IsOpen = true;
+            });
 
             var more = BuildMoreButton();
             panel.Children.Add(more);

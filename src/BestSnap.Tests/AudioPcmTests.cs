@@ -42,6 +42,24 @@ namespace BestSnap.Tests
         }
 
         [Fact]
+        public void HasVoice_UsesRmsThreshold()
+        {
+            Assert.False(AudioPcm.HasVoice(new short[1600]));
+            var loud = new short[1600];
+            for (int i = 0; i < loud.Length; i++) loud[i] = (short)(i % 2 == 0 ? 8000 : -8000);
+            Assert.True(AudioPcm.HasVoice(loud, 0.012));
+        }
+
+        [Fact]
+        public void ToMono16k_DownmixesAndResamples()
+        {
+            var src = new byte[8];
+            src[0] = 0x00; src[1] = 0x10; src[2] = 0x00; src[3] = 0x10;
+            var m = AudioPcm.ToMono16k(src, src.Length, 32000, 2, 16);
+            Assert.True(m.Length >= 1);
+        }
+
+        [Fact]
         public void Meter_MapsDbToUnitInterval()
         {
             Assert.Equal(0, AudioPcm.Meter(0));

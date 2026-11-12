@@ -7,7 +7,7 @@ BestSnap：用 C# / WPF / .NET 8 从零编写的独立 Windows 工具。对外�
 ## 环境要求
 - Windows 10 1903+ / Windows 11（x64）
 - .NET 8 SDK（https://dotnet.microsoft.com/download/dotnet/8.0）
-- NuGet 依赖：`ScreenRecorderLib 6.6.0`（录屏用，基于 Windows Media Foundation，**不需要 FFmpeg**；运行时需要 VC++ 2015-2022 x64 运行库）、`NAudio 2.2.1`（MIT，纯音频录制：WASAPI 采集/环回 + Media Foundation 编码 MP3）
+- NuGet 依赖：`ScreenRecorderLib 6.6.0`（录屏用，基于 Windows Media Foundation，**不需要 FFmpeg**；运行时需要 VC++ 2015-2022 x64 运行库）、`NAudio 2.2.1`（MIT，纯音频录制：WASAPI 采集/环回 + Media Foundation 编码 MP3）、`Whisper.net 1.8.1` + `Whisper.net.Runtime`（MIT，本机语音转写；模型首次使用下载到 `%LocalAppData%\BestSnap\models\whisper`）
 
 ## 编译与运行
 ```powershell
@@ -86,9 +86,12 @@ ScreenRecorderLib.dll 和 Ijwhost.dll 是混合模式程序集，csproj 中的 `
 | 自动保存 + 文件名模板 | ✅ 完整 | |
 | OCR（PaddleOCR PP-OCRv4 / Windows OCR） | ✅ 完整 | 需 OCR 插件（默认嵌在单文件 exe）。内置模型离线。版面与中英混排见 README |
 | 公式 → LaTeX | ✅ 完整 | 默认 pix2text-mfr；安装包把模型放到 `{app}\models\pix2text-mfr`，优先用安装目录，缺失才下载约 112 MB 并 SHA-256 校验；可选 OpenAI 兼容视觉 API / Mathpix |
-| 录屏 MP4 / GIF | ✅ 基本完整 | 录制前弹出选项窗口：全屏(选显示器或所有显示器)/框选区域/指定窗口、系统声音、麦克风+设备、鼠标指针、点击高亮、帧率(10/15/24/30/60)、画质、倒计时、保存文件夹、记住设置；录制时显示置顶控制条（开始/暂停/继续/停止 + 计时，Win10 2004+ 不会被录进视频，区域边框同样排除）；跨显示器区域用全部显示器源 + 虚拟桌面裁剪。结束后立即弹出完成对话框（完整路径、打开文件夹 `explorer /select,`、打开文件、剪辑） |
-| 纯音频录制 WAV / MP3 | ✅ 完整 | 托盘/工具栏/热键 Ctrl+Shift+A。麦克风、WASAPI 环回或混合；设备选择；实时电平；暂停/继续；记住上次文件夹与设备。MP3 经 Media Foundation（N 版 Windows 可能缺少编码器） |
-| 录后剪辑（中间剪切） | ✅ 完整 | 预览 + 时间轴；可标记多段删除（含中间）；WAV 波形。默认导出 `原名_trimmed`，覆盖原文件需确认。优先 ffmpeg 重编码切段保 A/V 同步；PCM WAV 可无 ffmpeg 直切；单段 MP4 可回退 WinRT 插件 |
+| 录屏 MP4 / GIF | ✅ 基本完整 | 工具栏录制菜单可选屏幕/音频/仅转写。录制前弹出选项窗口：全屏(选显示器或所有显示器)/框选区域/指定窗口、系统声音、麦克风+设备、鼠标指针、点击高亮、帧率(10/15/24/30/60)、画质、倒计时、记住设置；录制时显示置顶控制条（开始/暂停/继续/停止 + 计时，Win10 2004+ 不会被录进视频，区域边框同样排除）；跨显示器区域用全部显示器源 + 虚拟桌面裁剪。停止后写入 `%LocalAppData%\BestSnap\temp\recordings`，完成窗预览 + 剪辑 + 转写 + 摘要 + 另存；关闭未保存会确认丢弃。超过 7 天的临时文件启动时清理 |
+| 纯音频录制 WAV / MP3 | ✅ 完整 | 托盘/工具栏/热键 Ctrl+Shift+A。麦克风、WASAPI 环回或混合；设备选择；实时电平；暂停/继续；记住上次文件夹与设备。同样先写临时文件再另存。MP3 经 Media Foundation（N 版 Windows 可能缺少编码器） |
+| 仅转写（不保存音频） | ✅ 完整 | 工具栏录制菜单与音频窗口。麦克/系统设备同录音。8s 窗口 + 1.5s 重叠滚动送入本机 Whisper；VAD（RMS）；置顶可缩放字幕窗（捕获排除）。音频只在内存，转写后立即丢弃。停止后复制 / 保存 txt、srt、摘要。暂停/继续 |
+| 本机转写 Whisper | ✅ 完整 | Whisper.net（MIT）。默认 base 多语言模型，首次下载到 `%LocalAppData%\BestSnap\models\whisper`。ffmpeg 抽 16 kHz 单声道（WAV 可本机抽）。时间戳、复制、txt/srt。后台线程可取消 |
+| 摘要 | ✅ 完整 | 转写旁摘要按钮。可配 OpenAI 兼容 chat-completions（设置里的 Chat，或复用公式 OpenAI）；长转写分块 map-reduce。未配置时用本机 TextRank 抽取式摘要并标明。Copy / 保存 .md。首次联网前一行提示。音频从不上传 |
+| 录后剪辑（中间剪切） | ✅ 完整 | 预览 + 时间轴；可标记多段删除（含中间）；WAV 波形。默认导出 `原名_trimmed`，覆盖原文件需确认。优先 ffmpeg 重编码切段保 A/V 同步；PCM WAV 可无 ffmpeg 直切；单段 MP4 可回退 WinRT 插件。完成窗 Trim 作用于临时文件，另存的是剪辑结果 |
 | 取色器 | ✅ 完整 | 显示 HEX/RGB/坐标，单击复制 HEX |
 | 屏幕放大镜 | ✅ 完整 | 跟随鼠标，滚轮调整倍率 2–16x，Esc/双击关闭 |
 | 屏幕标尺 | ✅ 完整 | 物理像素刻度，R 旋转，滚轮调整长度 |
@@ -117,7 +120,8 @@ src/BestSnap/
 
 ## 日志与设置补充
 - 未处理异常会弹窗提示并写入 `%AppData%\BestSnap\logs\yyyy-MM-dd.log`。
-- 设置“编辑器/设置窗口也从截图录屏中排除”（默认开）；工具栏、录屏控制条、倒计时、放大镜、选区遮罩、区域边框、录音窗口、完成对话框始终排除。
+- 设置“编辑器/设置窗口也从截图录屏中排除”（默认开）；工具栏、录屏控制条、倒计时、放大镜、选区遮罩、区域边框、录音窗口、完成对话框、实时字幕窗始终排除。
+- 转写用本机 Whisper（MIT）。音频不会上传。摘要仅在你配置了聊天接口且确认过提示后才会发送**文本**。
 - 多段 MP4/MP3 剪辑需要本机 PATH 上的 ffmpeg（不随安装包分发，避免 GPL）。PCM WAV 可无 ffmpeg 直切。Windows N 版可能没有 Media Foundation MP3 编码器，此时录音会留下 WAV。
 - 发布默认启用 ReadyToRun（仅增加约 180 KB，启动更快）。
 

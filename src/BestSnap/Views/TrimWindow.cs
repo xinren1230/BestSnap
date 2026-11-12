@@ -21,6 +21,7 @@ namespace BestSnap.Views
     public class TrimWindow : Window
     {
         readonly string _file;
+        readonly Action<string> _onApplied;
         readonly bool _audio;
         readonly MediaElement _media = new MediaElement { LoadedBehavior = MediaState.Manual, UnloadedBehavior = MediaState.Close, ScrubbingEnabled = true };
         readonly Slider _pos = new Slider { Minimum = 0, Maximum = 1 };
@@ -34,9 +35,10 @@ namespace BestSnap.Views
         bool _seeking, _playing, _dragging;
         double _dragA;
 
-        public TrimWindow(string file)
+        public TrimWindow(string file, Action<string> onApplied = null)
         {
             _file = file;
+            _onApplied = onApplied;
             _audio = TrimRangeMath.IsAudioPath(file);
             Title = L.T("剪辑") + " - " + IOPath.GetFileName(file);
             Width = 960; Height = _audio ? 520 : 680; WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -51,6 +53,7 @@ namespace BestSnap.Views
             var export = Mk(L.T("导出剪辑…"));
             var replace = Mk(L.T("覆盖原文件"));
             var folder = Mk(L.T("打开文件夹"));
+            var stt = Mk(L.T("转写"));
 
             var grid = new Grid { Margin = new Thickness(12) };
             for (int i = 0; i < 8; i++)
@@ -79,8 +82,8 @@ namespace BestSnap.Views
 
             var btns = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
-            export.Margin = replace.Margin = folder.Margin = new Thickness(0, 0, 8, 0);
-            left.Children.Add(export); left.Children.Add(replace); left.Children.Add(folder); left.Children.Add(_info);
+            export.Margin = replace.Margin = folder.Margin = stt.Margin = new Thickness(0, 0, 8, 0);
+            left.Children.Add(export); left.Children.Add(replace); left.Children.Add(folder); left.Children.Add(stt); left.Children.Add(_info);
             btns.Children.Add(left);
             Grid.SetRow(btns, 6); grid.Children.Add(btns);
 
@@ -153,6 +156,16 @@ namespace BestSnap.Views
             _tick.Start();
 
             folder.Click += (s, e) => ShellUtil.RevealInExplorer(_file);
+            stt.Click += (s, e) =>
+            {
+                var w = new Window
+                {
+                    Title = L.T("转写") + " - " + AppIdentity.Name, Width = 640, Height = 520, Owner = this,
+                    Background = SmartUi.LightBarBackground, WindowStartupLocation = WindowStartupLocation.CenterOwner
+                };
+                w.Content = new ScrollViewer { Content = new TranscribePanel(App.Settings, () => _file), Padding = new Thickness(16), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                w.Show();
+            };
             export.Click += async (s, e) =>
             {
                 string def = TrimRangeMath.DefaultOutputPath(_file);
@@ -331,8 +344,13 @@ namespace BestSnap.Views
                     try { File.Delete(target); } catch { }
                     _media.Source = new Uri(_file);
                     _info.Text = L.T("已保存") + ": " + _file;
+                    _onApplied?.Invoke(_file);
                 }
-                else _info.Text = L.T("已保存") + ": " + output;
+                else
+                {
+                    _info.Text = L.T("已保存") + ": " + output;
+                    _onApplied?.Invoke(output);
+                }
             }
             catch (Exception ex)
             {

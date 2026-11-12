@@ -19,8 +19,9 @@
 - 🔤 **OCR 文字识别**：中英文混排一键提取文字（PP-OCRv4）
 - ∑ **公式转 LaTeX**：截一下公式，直接得到 LaTeX 代码并实时渲染预览
 - 🔳 **二维码 / 条码识别**：框一下，链接马上出来
-- 🎥 **录屏**：框选区域 / 单显示器 / 全部显示器 / 窗口；控制条暂停；MP4（H.264+AAC）或 GIF；结束后显示完整保存路径，可打开文件夹、打开文件或剪辑（支持从中间剪切）
-- 🎙️ **录音**：麦克风、系统声音（WASAPI 环回）或混合，WAV / MP3，实时电平
+- 🎥 **录屏**：框选区域 / 单显示器 / 全部显示器 / 窗口；控制条暂停；MP4（H.264+AAC）或 GIF。先写入临时文件，完成窗口可预览、剪辑、转写、摘要，再另存
+- 🎙️ **录音**：麦克风、系统声音（WASAPI 环回）或混合，WAV / MP3，实时电平；工具栏「录制」菜单可选屏幕 / 音频 / 仅转写
+- 📝 **仅转写（不保存音频）**：滚动 Whisper 字幕 + 带时间戳的转写；音频只在内存中，停止后可复制 / 保存 txt、srt 并摘要
 - 🕘 **截图历史**：自动保存，随时找回
 
 ### 下载
@@ -79,8 +80,9 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
 - 🔤 **OCR**: extract mixed Chinese/English text (PP-OCRv4)
 - ∑ **Formula → LaTeX**: snip an equation and get LaTeX code with a live preview
 - 🔳 **QR / barcode** decoding
-- 🎥 **Screen recording**: region, one monitor, all monitors, or a window; pause from the control bar; MP4 (H.264+AAC) or GIF. When a recording finishes, the full save path is shown, with Open folder, Open file, and Trim (including cutting ranges from the middle)
-- 🎙️ **Audio recording**: microphone, system loopback, or mixed; WAV / MP3 with live meters
+- 🎥 **Screen recording**: region, one monitor, all monitors, or a window; pause from the control bar; MP4 (H.264+AAC) or GIF. Stop writes a temp file; the completion window has preview, Trim, Transcribe, Summarize, then Save As
+- 🎙️ **Audio recording**: microphone, system loopback, or mixed; WAV / MP3 with live meters. The toolbar Recording menu offers screen, audio-only, and transcribe-only
+- 📝 **Transcribe only (no audio saved)**: live Whisper captions and a timestamped transcript; audio stays in memory; on stop you can copy / save .txt .srt and summarize
 - 🕘 **Capture history**, saved automatically
 
 ### Download

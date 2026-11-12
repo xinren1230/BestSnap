@@ -47,6 +47,14 @@ namespace BestSnap.Models
     }
 
     public enum WebcamCorner { BottomRight, BottomLeft, TopRight, TopLeft }
+    /// <summary>Optional OpenAI-compatible chat-completions endpoint for transcript summaries. Empty = offline extractive fallback.</summary>
+    public class ChatSettings
+    {
+        public string ApiBase { get; set; }
+        public string ApiModel { get; set; } = "gpt-4o-mini";
+        public string ApiKeyProtected { get; set; }
+    }
+
     public enum TranslateProvider { None, DeepL, Azure, LibreTranslate }
 
     public class TranslateSettings
@@ -136,6 +144,11 @@ namespace BestSnap.Models
         public TranslateSettings Translate { get; set; } = new TranslateSettings();
         public string OcrLanguage { get; set; }        // null/"" = auto (zh/ja/ko recognizers if installed + profile languages, best result wins)
         public FormulaSettings Formula { get; set; } = new FormulaSettings();
+        public ChatSettings Chat { get; set; } = new ChatSettings();
+        /// <summary>tiny / base / small / medium. Downloaded on first use into %LocalAppData%\BestSnap\models\whisper.</summary>
+        public string WhisperModel { get; set; } = WhisperModels.DefaultId;
+        /// <summary>User has been told that a configured LLM will send transcript text to the network.</summary>
+        public bool SummarizeNetworkConsent { get; set; }
         public WatermarkSettings Watermark { get; set; } = new WatermarkSettings();
         public List<UploadTarget> UploadTargets { get; set; } = new List<UploadTarget>();
         public List<HotkeyBinding> Hotkeys { get; set; } = new List<HotkeyBinding>

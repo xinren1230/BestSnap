@@ -193,7 +193,7 @@ namespace BestSnap.Views
                 _fps.IsEnabled = _quality.IsEnabled = !gif; _gifFps.IsEnabled = _gifWidth.IsEnabled = gif;
                 _clicks.IsEnabled = !gif;
                 string ext = gif ? ".gif" : ".mp4";
-                _fileHint.Text = "Rec_yyyyMMdd_HHmmss" + ext + "  " + L.T("按开始时间自动命名");
+                _fileHint.Text = "Rec_yyyyMMdd_HHmmss" + ext + "  " + L.T("先写入临时文件，完成后再另存");
             }
             bool syncingFmt = false;
             void BindFmt(RadioButton srcMp4, RadioButton srcGif, RadioButton dstMp4, RadioButton dstGif)
