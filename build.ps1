@@ -4,7 +4,8 @@
 #   .\build.ps1 -Installer              self-contained exe + Inno Setup one-click installer
 #                                       (requires Inno Setup 6.5+: winget install JRSoftware.InnoSetup)
 #   .\build.ps1 -Installer -SignThumbprint <40-char SHA-1 cert thumbprint>
-#                                       signs BestSnap.exe then BestSnap-Setup-<version>.exe (no keys in-repo)
+#                                       signs BestSnap.exe, loose natives under runtimes\, then BestSnap-Setup-<version>.exe
+#                                       (no keys in-repo)
 #   Optional: -TimestampUrl http://time.certum.pl  (Certum); default is DigiCert.
 param(
     [switch]$SelfContained,
@@ -143,29 +144,50 @@ dotnet publish src\BestSnap -c $Configuration -r win-x64 --self-contained $sc `
   -p:EmbedRuntimeDir="$rt" -o publish
 if ($LASTEXITCODE) { throw "final publish failed" }
 
-# Whisper.net loads {exeDir}\runtimes\win-x64\whisper.dll. Those DLLs must stay beside the
+# Whisper.net loads {exeDir}\runtimes\win-x64\whisper.dll (CPU) and optional
+# runtimes\cuda\win-x64 / runtimes\vulkan\win-x64. Those DLLs must stay beside the
 # exe (ExcludeFromSingleFile). Deleting everything except BestSnap.exe left natives only in
-# %TEMP%\.net\BestSnap\<hash>\runtimes\win-x64\, which the loader does not search.
+# %TEMP%\.net\BestSnap\<hash>\runtimes\..., which the loader does not search.
 $whisperNatives = @("whisper.dll", "ggml-whisper.dll", "ggml-base-whisper.dll", "ggml-cpu-whisper.dll")
 Get-ChildItem publish | ForEach-Object {
     if ($_.Name -eq "BestSnap.exe" -or $_.Name -eq "runtimes") { return }
     Remove-Item $_.FullName -Recurse -Force
 }
-$rtKeep = Join-Path "publish" "runtimes\win-x64"
-if (Test-Path (Join-Path "publish" "runtimes")) {
-    Get-ChildItem (Join-Path "publish" "runtimes") | Where-Object { $_.Name -ne "win-x64" } | Remove-Item -Recurse -Force
+$rtRoot = Join-Path "publish" "runtimes"
+if (-not (Test-Path -LiteralPath $rtRoot)) {
+    throw "publish missing runtimes\ (single-file extract is not enough; transcribe will fail)"
 }
+Get-ChildItem $rtRoot -Directory | Where-Object { $_.Name -notin @("win-x64", "cuda", "vulkan") } | Remove-Item -Recurse -Force
+foreach ($gpu in @("cuda", "vulkan")) {
+    $g = Join-Path $rtRoot $gpu
+    if (Test-Path -LiteralPath $g) {
+        Get-ChildItem $g -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "win-x64" } | Remove-Item -Recurse -Force
+    }
+}
+$rtKeep = Join-Path $rtRoot "win-x64"
 foreach ($n in $whisperNatives) {
     $p = Join-Path $rtKeep $n
     if (-not (Test-Path -LiteralPath $p)) {
         throw "publish missing Whisper native $n at runtimes\win-x64 (single-file extract is not enough; transcribe will fail)"
     }
 }
+
+function Sign-RuntimeDlls {
+    param([string]$Root)
+    if (-not $SignThumbprint) { return }
+    if (-not (Test-Path -LiteralPath $Root)) { return }
+    Get-ChildItem -LiteralPath $Root -Recurse -Filter *.dll | ForEach-Object {
+        Invoke-AuthenticodeSign -FilePath $_.FullName -Thumbprint $SignThumbprint -Timestamp $TimestampUrl
+    }
+}
+Sign-RuntimeDlls $rtRoot
+
 Remove-Item $stage -Recurse -Force
 $exe = Get-Item publish\BestSnap.exe
 "{0}  {1:N1} MB" -f $exe.FullName, ($exe.Length / 1MB)
 $rtKeepItem = Get-Item $rtKeep
 "Whisper natives  {0}" -f $rtKeepItem.FullName
+Get-ChildItem $rtRoot -Directory | ForEach-Object { "  runtime tree  {0}" -f $_.FullName }
 
 if (-not $Installer) { return }
 
@@ -176,11 +198,8 @@ $hf = "https://huggingface.co/breezedeus/pix2text-mfr/resolve/main"
 Remove-Item $payload -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $payload | Out-Null
 Copy-Item $exe.FullName (Join-Path $payload "BestSnap.exe")
-$rtDst = Join-Path $payload "runtimes\win-x64"
-New-Item -ItemType Directory -Force $rtDst | Out-Null
-foreach ($n in $whisperNatives) {
-    Copy-Item (Join-Path $rtKeep $n) (Join-Path $rtDst $n) -Force
-}
+Copy-Item $rtRoot (Join-Path $payload "runtimes") -Recurse -Force
+Sign-RuntimeDlls (Join-Path $payload "runtimes")
 Copy-Item (Join-Path $PSScriptRoot "LICENSE") (Join-Path $payload "LICENSE")
 Copy-Item (Join-Path $PSScriptRoot "NOTICE") (Join-Path $payload "NOTICE")
 Copy-Item (Join-Path $PSScriptRoot "installer\licenses") (Join-Path $payload "licenses") -Recurse

@@ -21,7 +21,29 @@ namespace BestSnap.Plugins
             "ggml-cpu-whisper.dll",
         };
 
+        public static readonly string[] GpuRuntimeFolders = { "cuda", "vulkan" };
+
         public static string WinX64Relative => Path.Combine("runtimes", WinX64Folder);
+
+        /// <summary>True when optional CUDA or Vulkan natives sit under runtimes/{cuda|vulkan}/win-x64.</summary>
+        public static bool HasGpuRuntime(string searchRoot)
+        {
+            if (string.IsNullOrWhiteSpace(searchRoot)) return false;
+            try
+            {
+                foreach (var g in GpuRuntimeFolders)
+                {
+                    var d = Path.Combine(searchRoot, "runtimes", g, WinX64Folder);
+                    if (Directory.Exists(d))
+                    {
+                        foreach (var _ in Directory.EnumerateFiles(d, "*.dll"))
+                            return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
 
         public static bool HasWinX64Natives(string dir)
         {

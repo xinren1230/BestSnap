@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { srtTimestamp, toSrt, toTxt } from "../src/core/transcript.js";
+import { composeWhisperPrompt, normalizeWhisper, normalizeWhisperLanguage, srtTimestamp, toSrt, toTxt, whisperModels } from "../src/core/transcript.js";
 import { chunkAbsStart, extendCommitted, FIRST_WINDOW_SECONDS, fireAt, HOP_SECONDS, stitch, WINDOW_SECONDS, windowForIndex } from "../src/core/live-chunk.js";
 
 describe("transcript + live stitch", () => {
@@ -25,6 +25,24 @@ describe("transcript + live stitch", () => {
   it("txt includes bracket timestamps", () => {
     const t = toTxt([{ start: 5, end: 6, text: "hi" }]);
     assert.ok(t.startsWith("[00:00:05.000] hi"));
+  });
+
+  it("warmed live window is 10s with 2s overlap", () => {
+    assert.equal(FIRST_WINDOW_SECONDS, 3.5);
+    assert.equal(WINDOW_SECONDS, 10);
+    assert.equal(HOP_SECONDS, 8);
+  });
+
+  it("whisper models default to large-v3-turbo and keep aliases", () => {
+    assert.equal(whisperModels.defaultId, "large-v3-turbo");
+    assert.ok(whisperModels.ids.includes("large-v3-turbo-q5_0"));
+    assert.ok(whisperModels.ids.includes("medium-q5_0"));
+    assert.equal(normalizeWhisper("base"), "base");
+    assert.equal(normalizeWhisper("turbo"), "large-v3-turbo");
+    assert.equal(normalizeWhisperLanguage("zh-CN"), "zh");
+    const p = composeWhisperPrompt("zh", "BestSnap", "上一句");
+    assert.match(p, /简体中文/);
+    assert.match(p, /BestSnap/);
   });
 
   it("chunk abs start uses first window then hop", () => {

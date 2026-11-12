@@ -37,6 +37,15 @@ namespace BestSnap.Tests
         }
 
         [Fact]
+        public void LiveChunk_WarmedWindowIsTenSecondsWithTwoSecondOverlap()
+        {
+            Assert.Equal(3.5, LiveChunkMath.FirstWindowSeconds);
+            Assert.Equal(10, LiveChunkMath.WindowSeconds);
+            Assert.Equal(2, LiveChunkMath.OverlapSeconds);
+            Assert.Equal(8, LiveChunkMath.HopSeconds);
+        }
+
+        [Fact]
         public void LiveChunk_FirstWindowThenHop()
         {
             Assert.Equal(0, LiveChunkMath.ChunkAbsStart(0));

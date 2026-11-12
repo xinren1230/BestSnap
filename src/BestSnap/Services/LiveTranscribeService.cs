@@ -42,6 +42,8 @@ namespace BestSnap.Services
         int _silentStreak;
         bool _reportedFail;
         string _modelId = WhisperModels.DefaultId;
+        string _language = "auto";
+        string _userPrompt;
 
         public bool IsRunning { get; private set; }
         public bool IsPaused { get; private set; }
@@ -64,10 +66,10 @@ namespace BestSnap.Services
         public event Action StatusChanged;
         public string Status { get; private set; }
 
-        public void Start(AudioRecordingSettings opts, string modelId) =>
-            StartAsync(opts, modelId).GetAwaiter().GetResult();
+        public void Start(AudioRecordingSettings opts, string modelId, string language = null, string prompt = null) =>
+            StartAsync(opts, modelId, language, prompt).GetAwaiter().GetResult();
 
-        public async Task StartAsync(AudioRecordingSettings opts, string modelId)
+        public async Task StartAsync(AudioRecordingSettings opts, string modelId, string language = null, string prompt = null)
         {
             if (IsRunning) return;
             opts = AudioRecordingSettings.Normalize(opts, null);
@@ -77,6 +79,8 @@ namespace BestSnap.Services
             _micVol = opts.MicVolume;
             _sysVol = opts.SystemVolume;
             _modelId = WhisperModels.Normalize(modelId);
+            _language = WhisperDecode.NormalizeLanguage(language);
+            _userPrompt = prompt;
             lock (_cueLock) _cues.Clear();
             _ring.Clear();
             _micLeftover.Clear(); _sysLeftover.Clear();
@@ -97,7 +101,7 @@ namespace BestSnap.Services
             HasStarted = false;
             _cts = new CancellationTokenSource();
             SetStatus(L.T("正在加载模型…"));
-            Logger.Info($"Live start source={opts.Source} mic={_useMic} sys={_useSys} model={_modelId}");
+            Logger.Info($"Live start source={opts.Source} mic={_useMic} sys={_useSys} model={_modelId} lang={_language}");
 
             try
             {
@@ -250,10 +254,18 @@ namespace BestSnap.Services
             _processed++;
             Logger.Info($"Live chunk process processed={_processed} skipped={_skipped} rms={rms:F5} thresh={thresh:F5} samples={pcm.Length} abs={absStart:F2}");
             SetStatus(L.T("正在转写…"));
+            string previous;
+            lock (_cueLock) previous = LastCueText(_cues);
+            var decode = new WhisperDecodeSettings
+            {
+                Language = _language,
+                Prompt = _userPrompt,
+                PreviousText = previous
+            };
             List<TranscriptCue> rel;
             try
             {
-                rel = await WhisperTranscriber.TranscribeSamplesAsync(pcm, _modelId, null, ct).ConfigureAwait(false);
+                rel = await WhisperTranscriber.TranscribeSamplesAsync(pcm, _modelId, decode, null, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
@@ -280,6 +292,21 @@ namespace BestSnap.Services
             if (IsPaused) SetStatus(L.T("已暂停（不保存音频）"));
             else if (_cues.Count == 0) SetStatus(L.T("正在聆听…（尚未检测到语音）"));
             else SetStatus(L.T("仅转写中（不保存音频）"));
+        }
+
+        static string LastCueText(List<TranscriptCue> cues, int maxCues = 4)
+        {
+            if (cues == null || cues.Count == 0) return "";
+            int from = cues.Count > maxCues ? cues.Count - maxCues : 0;
+            string s = "";
+            for (int i = from; i < cues.Count; i++)
+            {
+                string t = cues[i].Text;
+                if (string.IsNullOrWhiteSpace(t)) continue;
+                if (s.Length > 0) s += " ";
+                s += t.Trim();
+            }
+            return s;
         }
 
         static short[] Scale(short[] a, double vol)

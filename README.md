@@ -21,7 +21,7 @@
 - 🔳 **二维码 / 条码识别**：框一下，链接马上出来
 - 🎥 **录屏**：框选区域 / 单显示器 / 全部显示器 / 窗口；控制条暂停；MP4（H.264+AAC）或 GIF。先写入临时文件，完成窗口可预览、剪辑、转写、摘要，再另存
 - 🎙️ **录音**：麦克风、系统声音（WASAPI 环回）或混合，WAV / MP3，实时电平；工具栏「录制」菜单可选屏幕 / 音频 / 仅转写
-- 📝 **仅转写（不保存音频）**：滚动 Whisper 字幕 + 带时间戳的转写；音频只在内存中，停止后可复制 / 保存 txt、srt 并摘要。字幕窗跟工具栏所在显示器；安装目录需带 `runtimes\win-x64` 下的 Whisper 原生库
+- 📝 **仅转写（不保存音频）**：滚动 Whisper 字幕 + 带时间戳的转写；可选 tiny～large-v3-turbo（含 q5_0）本机模型、语言与提示词；音频只在内存中，停止后可复制 / 保存 txt、srt 并摘要。字幕窗跟工具栏所在显示器；安装目录需带 `runtimes\win-x64`（及可选 GPU）下的 Whisper 原生库
 - 🕘 **截图历史**：自动保存，随时找回
 
 ### 下载
@@ -82,7 +82,7 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
 - 🔳 **QR / barcode** decoding
 - 🎥 **Screen recording**: region, one monitor, all monitors, or a window; pause from the control bar; MP4 (H.264+AAC) or GIF. Stop writes a temp file; the completion window has preview, Trim, Transcribe, Summarize, then Save As
 - 🎙️ **Audio recording**: microphone, system loopback, or mixed; WAV / MP3 with live meters. The toolbar Recording menu offers screen, audio-only, and transcribe-only
-- 📝 **Transcribe only (no audio saved)**: live Whisper captions and a timestamped transcript; audio stays in memory; on stop you can copy / save .txt .srt and summarize
+- 📝 **Transcribe only (no audio saved)**: live Whisper captions and a timestamped transcript; pick tiny–large-v3-turbo (q5_0 variants), language, and a vocabulary prompt; audio stays in memory; on stop you can copy / save .txt .srt and summarize
 - 🕘 **Capture history**, saved automatically
 
 ### Download

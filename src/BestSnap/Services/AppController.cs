@@ -409,7 +409,7 @@ namespace BestSnap.Services
         {
             try
             {
-                await _live.StartAsync(opts, S.WhisperModel);
+                await _live.StartAsync(opts, S.WhisperModel, S.WhisperLanguage, S.WhisperPrompt);
             }
             catch (Exception ex)
             {

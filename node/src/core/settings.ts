@@ -63,6 +63,9 @@ export interface AppSettings {
   historyMax: number;
   language: string;
   ocrLanguage: string;
+  whisperModel: string;
+  whisperLanguage: string;
+  whisperPrompt: string;
   formula: { engine: FormulaEngine; apiBase: string; apiModel: string; apiKey: string; mathpixAppId: string; mathpixKey: string };
   translate: { provider: TranslateProvider; endpoint: string; region: string; key: string };
   recording: RecordingSettings;
@@ -126,6 +129,9 @@ export function defaults(): AppSettings {
     historyMax: 50,
     language: "auto",
     ocrLanguage: "",
+    whisperModel: "large-v3-turbo",
+    whisperLanguage: "auto",
+    whisperPrompt: "",
     formula: { engine: "Local", apiBase: "https://api.openai.com/v1", apiModel: "gpt-4o-mini", apiKey: "", mathpixAppId: "", mathpixKey: "" },
     translate: { provider: "None", endpoint: "", region: "", key: "" },
     recording: {

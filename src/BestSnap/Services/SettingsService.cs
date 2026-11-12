@@ -52,6 +52,9 @@ namespace BestSnap.Services
             if (s.Formula == null) s.Formula = d.Formula;
             if (s.Chat == null) s.Chat = d.Chat;
             if (string.IsNullOrWhiteSpace(s.WhisperModel)) s.WhisperModel = WhisperModels.DefaultId;
+            else s.WhisperModel = WhisperModels.Normalize(s.WhisperModel);
+            s.WhisperLanguage = WhisperDecode.NormalizeLanguage(s.WhisperLanguage);
+            if (s.WhisperPrompt != null) s.WhisperPrompt = s.WhisperPrompt.Trim();
             if (s.Watermark == null) s.Watermark = d.Watermark;
             else
             {

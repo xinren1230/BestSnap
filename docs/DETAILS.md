@@ -88,8 +88,8 @@ ScreenRecorderLib.dll 和 Ijwhost.dll 是混合模式程序集，csproj 中的 `
 | 公式 → LaTeX | ✅ 完整 | 默认 pix2text-mfr；安装包把模型放到 `{app}\models\pix2text-mfr`，优先用安装目录，缺失才下载约 112 MB 并 SHA-256 校验；可选 OpenAI 兼容视觉 API / Mathpix |
 | 录屏 MP4 / GIF | ✅ 基本完整 | 工具栏录制菜单可选屏幕/音频/仅转写。录制前弹出选项窗口：全屏(选显示器或所有显示器)/框选区域/指定窗口、系统声音、麦克风+设备、鼠标指针、点击高亮、帧率(10/15/24/30/60)、画质、倒计时、记住设置；录制时显示置顶控制条（开始/暂停/继续/停止 + 计时，Win10 2004+ 不会被录进视频，区域边框同样排除）；跨显示器区域用全部显示器源 + 虚拟桌面裁剪。停止后写入 `%LocalAppData%\BestSnap\temp\recordings`，完成窗预览 + 剪辑 + 转写 + 摘要 + 另存；关闭未保存会确认丢弃。超过 7 天的临时文件启动时清理 |
 | 纯音频录制 WAV / MP3 | ✅ 完整 | 托盘/工具栏/热键 Ctrl+Shift+A。麦克风、WASAPI 环回或混合；设备选择；实时电平；暂停/继续；记住上次文件夹与设备。同样先写临时文件再另存。MP3 经 Media Foundation（N 版 Windows 可能缺少编码器） |
-| 仅转写（不保存音频） | ✅ 完整 | 工具栏录制菜单与音频窗口。默认来源 Mix。首段约 3.5s 再 8s 重叠滚动送入本机 Whisper；自适应 VAD。字幕窗开在工具栏/光标所在显示器底部居中，会话内记住位置；电平与 Loading/Listening/Transcribing 状态。Whisper 原生 DLL 随安装放在 `{app}\runtimes\win-x64\`（不能只靠单文件解压目录）。音频只在内存。停止后复制 / 保存 txt、srt、摘要。暂停/继续 |
-| 本机转写 Whisper | ✅ 完整 | Whisper.net（MIT）。默认 base 多语言模型，首次下载到 `%LocalAppData%\BestSnap\models\whisper`。ffmpeg 抽 16 kHz 单声道（WAV 可本机抽）。时间戳、复制、txt/srt。后台线程可取消 |
+| 仅转写（不保存音频） | ✅ 完整 | 工具栏录制菜单与音频窗口。默认来源 Mix。首段约 3.5s，之后 10s 窗口、2s 重叠送入本机 Whisper；beam search；上一句作 prompt。自适应 VAD。字幕窗开在工具栏/光标所在显示器底部居中，会话内记住位置；电平与 Loading/Listening/Transcribing 状态。Whisper 原生 DLL 随安装放在 `{app}\runtimes\win-x64\`，可选 CUDA/Vulkan 在 `runtimes\cuda|vulkan\win-x64\`（不能只靠单文件解压目录）。音频只在内存。停止后复制 / 保存 txt、srt、摘要。暂停/继续 |
+| 本机转写 Whisper | ✅ 完整 | Whisper.net（MIT）。可选 tiny / base / small / medium / large-v3-turbo（及 medium、turbo 的 q5_0）。默认 large-v3-turbo，首次从 Hugging Face `ggerganov/whisper.cpp` 下载到 `%LocalAppData%\BestSnap\models\whisper`（断点续传、SHA-256、可删除）。语言 Auto/中文/英语等；中文带简体标点初始 prompt；自定义词汇。ffmpeg 抽 16 kHz 单声道（WAV 可本机抽）。时间戳、复制、txt/srt。后台线程可取消 |
 | 摘要 | ✅ 完整 | 转写旁摘要按钮。可配 OpenAI 兼容 chat-completions（设置里的 Chat，或复用公式 OpenAI）；长转写分块 map-reduce。未配置时用本机 TextRank 抽取式摘要并标明。Copy / 保存 .md。首次联网前一行提示。音频从不上传 |
 | 录后剪辑（中间剪切） | ✅ 完整 | 预览 + 时间轴；可标记多段删除（含中间）；WAV 波形。默认导出 `原名_trimmed`，覆盖原文件需确认。优先 ffmpeg 重编码切段保 A/V 同步；PCM WAV 可无 ffmpeg 直切；单段 MP4 可回退 WinRT 插件。完成窗 Trim 作用于临时文件，另存的是剪辑结果 |
 | 取色器 | ✅ 完整 | 显示 HEX/RGB/坐标，单击复制 HEX |
@@ -179,7 +179,7 @@ de/ja/ko/fr/es were machine-translated offline from English (Argos Translate) an
 
 ## Single-exe build
 
-`.\build.ps1` (framework-dependent, needs .NET 8 Desktop Runtime x64) or `.\build.ps1 -SelfContained` → `publish\BestSnap.exe` plus `publish\runtimes\win-x64\` (Whisper.cpp natives: whisper.dll, ggml-*.dll). Whisper.net looks in `{exeDir}\runtimes\win-x64\`, not the single-file extract folder under `%TEMP%\.net`.
+`.\build.ps1` (framework-dependent, needs .NET 8 Desktop Runtime x64) or `.\build.ps1 -SelfContained` → `publish\BestSnap.exe` plus `publish\runtimes\win-x64\` (Whisper.cpp CPU natives) and optional `runtimes\cuda\win-x64`, `runtimes\vulkan\win-x64`. Whisper.net looks in `{exeDir}\runtimes\…`, not the single-file extract folder under `%TEMP%\.net`. With `-SignThumbprint`, `build.ps1` Authenticode-signs those loose `runtimes\**\*.dll` as well as the exe/installer.
 ScreenRecorderLib (mixed-mode C++/CLI) and the OCR plugin with its WinRT projection are embedded as resources and extracted on first run to
 `%LocalAppData%\BestSnap\runtime\<build id>\` (old build folders are cleaned up), then resolved via AssemblyLoadContext + SetDllDirectory.
 A `plugins\` folder next to the exe still takes precedence over the embedded plugin.

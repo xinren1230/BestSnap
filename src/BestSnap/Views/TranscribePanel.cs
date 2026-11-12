@@ -21,10 +21,20 @@ namespace BestSnap.Views
         readonly ProgressBar _bar = new ProgressBar { Height = 6, Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 0) };
         readonly List<TranscriptCue> _cues = new List<TranscriptCue>();
         readonly Button _transcribe, _summarize, _copy, _txt, _srt, _copyMd, _md, _cancel;
+        readonly ComboBox _modelBox, _langBox;
+        readonly TextBox _promptBox;
         CancellationTokenSource _cts;
         string _summary;
 
         public IReadOnlyList<TranscriptCue> Cues => _cues;
+
+        void PersistWhisper()
+        {
+            _svc.Current.WhisperModel = WhisperUi.SelectedModel(_modelBox);
+            _svc.Current.WhisperLanguage = WhisperUi.SelectedLanguage(_langBox);
+            _svc.Current.WhisperPrompt = string.IsNullOrWhiteSpace(_promptBox.Text) ? null : _promptBox.Text.Trim();
+            _svc.Save();
+        }
 
         public TranscribePanel(SettingsService svc, Func<string> mediaPath, IEnumerable<TranscriptCue> seed = null)
         {
@@ -32,6 +42,29 @@ namespace BestSnap.Views
             _media = mediaPath;
             Margin = new Thickness(0, 12, 0, 0);
             Children.Add(new TextBlock { Text = L.T("转写（本机 Whisper，音频不会上传）"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
+            _modelBox = WhisperUi.ModelCombo(_svc.Current.WhisperModel);
+            _langBox = WhisperUi.LanguageCombo(_svc.Current.WhisperLanguage);
+            _promptBox = new TextBox
+            {
+                Text = _svc.Current.WhisperPrompt ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+                MinHeight = 36, MaxHeight = 72, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            var opt = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+            opt.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            opt.ColumnDefinitions.Add(new ColumnDefinition());
+            opt.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            opt.ColumnDefinitions.Add(new ColumnDefinition());
+            var ml = new TextBlock { Text = L.T("Whisper 模型"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            var ll = new TextBlock { Text = L.T("转写语言"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) };
+            Grid.SetColumn(ml, 0); Grid.SetColumn(_modelBox, 1); Grid.SetColumn(ll, 2); Grid.SetColumn(_langBox, 3);
+            opt.Children.Add(ml); opt.Children.Add(_modelBox); opt.Children.Add(ll); opt.Children.Add(_langBox);
+            Children.Add(opt);
+            Children.Add(new TextBlock { Text = L.T("提示词 / 词汇（可选）"), FontSize = 11, Foreground = System.Windows.Media.Brushes.Gray, Margin = new Thickness(0, 0, 0, 2) });
+            Children.Add(_promptBox);
+            _modelBox.SelectionChanged += (s, e) => PersistWhisper();
+            _langBox.SelectionChanged += (s, e) => PersistWhisper();
+            _promptBox.LostFocus += (s, e) => PersistWhisper();
 
             Button Btn(string label)
             {
@@ -104,10 +137,16 @@ namespace BestSnap.Views
             _status.Text = L.T("正在本机转写…首次使用会下载 Whisper 模型。");
             try
             {
-                var model = WhisperModels.Normalize(_svc.Current.WhisperModel);
-                _status.Text = string.Format(L.T("正在本机转写（{0}，约 {1}）…"), model, WhisperModels.SizeLabel(model));
+                PersistWhisper();
+                var modelId = WhisperModels.Normalize(_svc.Current.WhisperModel);
+                _status.Text = string.Format(L.T("正在本机转写（{0}，约 {1}）…"), modelId, WhisperModels.SizeLabel(modelId));
                 IProgress<double> prog = new Progress<double>(p => _bar.Value = p);
-                var cues = await WhisperTranscriber.TranscribeFileAsync(file, model, prog, _cts.Token);
+                var decode = new WhisperDecodeSettings
+                {
+                    Language = _svc.Current.WhisperLanguage,
+                    Prompt = _svc.Current.WhisperPrompt
+                };
+                var cues = await WhisperTranscriber.TranscribeFileAsync(file, modelId, decode, prog, _cts.Token);
                 _cues.Clear(); _cues.AddRange(cues);
                 _summary = null;
                 RefreshText();

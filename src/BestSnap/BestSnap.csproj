@@ -39,6 +39,9 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Whisper.net" Version="1.8.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />
+    <!-- Optional GPU backends; CPU natives still required. Windows CUDA only (skip Linux CUDA payload). -->
+    <PackageReference Include="Whisper.net.Runtime.Cuda.Windows" Version="1.8.1" />
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.8.1" />
     <!-- Core decoder only (no image bindings); fed raw BGRA bytes. -->
     <PackageReference Include="ZXing.Net" Version="0.16.9" />
     <!-- LaTeX preview in the formula result window (MIT) -->
@@ -65,8 +68,9 @@
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'$(EmbedRuntimeDir)'!='' and ('%(Filename)'=='ScreenRecorderLib' or '%(Filename)'=='Ijwhost')" />
       <!-- plain mode: mixed-mode assembly must stay beside the exe -->
       <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'$(EmbedRuntimeDir)'=='' and ('%(Filename)'=='ScreenRecorderLib' or '%(Filename)'=='Ijwhost')" ExcludeFromSingleFile="true" />
-      <!-- Whisper.cpp natives: Whisper.net looks in {exeDir}/runtimes/win-x64/, not the single-file extract dir. -->
-      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)'=='whisper.dll' or '%(Filename)'=='ggml-whisper' or '%(Filename)'=='ggml-base-whisper' or '%(Filename)'=='ggml-cpu-whisper'" ExcludeFromSingleFile="true" />
+      <!-- Whisper.cpp natives (CPU + optional CUDA/Vulkan): loader looks in {exeDir}/runtimes/..., not the single-file extract dir. -->
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)'=='whisper.dll' or '%(Filename)'=='ggml-whisper' or '%(Filename)'=='ggml-base-whisper' or '%(Filename)'=='ggml-cpu-whisper' or '%(Filename)'=='ggml-cuda-whisper' or '%(Filename)'=='ggml-vulkan-whisper'" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Extension)'=='.dll' and $([System.String]::Copy('%(RelativePath)').Replace('\','/').Contains('runtimes/'))" ExcludeFromSingleFile="true" />
     </ItemGroup>
   </Target>
 </Project>

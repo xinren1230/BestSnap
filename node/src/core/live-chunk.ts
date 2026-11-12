@@ -1,8 +1,8 @@
 import type { TranscriptCue } from "./transcript.js";
 
 export const FIRST_WINDOW_SECONDS = 3.5;
-export const WINDOW_SECONDS = 8;
-export const OVERLAP_SECONDS = 1.5;
+export const WINDOW_SECONDS = 10;
+export const OVERLAP_SECONDS = 2;
 export const HOP_SECONDS = WINDOW_SECONDS - OVERLAP_SECONDS;
 
 export function windowForIndex(index: number, firstWindow = FIRST_WINDOW_SECONDS, window = WINDOW_SECONDS): number {

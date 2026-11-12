@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { chunkAbsStart, FIRST_WINDOW_SECONDS, stitch, WINDOW_SECONDS, extendCommitted } from "./live-chunk.js";
 import { localAppDataDir } from "./paths.js";
-import type { TranscriptCue } from "./transcript.js";
+import { composeWhisperPrompt, type TranscriptCue } from "./transcript.js";
 
 function which(bin: string): string | null {
   const pathEnv = process.env.PATH || "";
@@ -82,8 +82,14 @@ export class LiveTranscribe {
     const bin = findWhisper();
     if (!bin) return;
     const modelDir = path.join(localAppDataDir(), "models", "whisper");
-    const model = ["base", "tiny", "small"].map((id) => path.join(modelDir, `ggml-${id}.bin`)).find((p) => fs.existsSync(p));
-    const args = model ? ["-m", model, "-f", file, "-nt", "-l", "auto"] : ["-f", file, "-nt"];
+    const preferred = ["large-v3-turbo", "large-v3-turbo-q5_0", "medium", "medium-q5_0", "small", "base", "tiny"];
+    const model = preferred.map((id) => path.join(modelDir, `ggml-${id}.bin`)).find((p) => fs.existsSync(p));
+    const lang = "auto";
+    const prev = this.cues.slice(-4).map((c) => c.text).filter(Boolean).join(" ");
+    const prompt = composeWhisperPrompt(lang, "", prev);
+    const args = ["-f", file, "-nt", "-bs", "5", "-l", lang];
+    if (model) args.unshift("-m", model);
+    if (prompt) args.push("--prompt", prompt);
     const text = await new Promise<string>((resolve) => {
       const p = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
       let out = "";

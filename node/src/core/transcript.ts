@@ -39,15 +39,41 @@ export function plainText(cues: TranscriptCue[]): string {
 }
 
 export const whisperModels = {
-  defaultId: "base",
-  ids: ["tiny", "base", "small", "medium"] as const,
+  defaultId: "large-v3-turbo",
+  ids: ["tiny", "base", "small", "medium-q5_0", "medium", "large-v3-turbo-q5_0", "large-v3-turbo"] as const,
   fileName(id: string): string {
     return `ggml-${normalizeWhisper(id)}.bin`;
   },
 };
 
 export function normalizeWhisper(id: string): string {
-  const s = (id || "").toLowerCase();
-  if (s === "tiny" || s === "small" || s === "medium") return s;
-  return "base";
+  const s = (id || "").trim().toLowerCase().replace(/\s+/g, "-");
+  if (s === "turbo" || s === "large" || s === "large-v3") return "large-v3-turbo";
+  if (s === "turbo-q5_0" || s === "turbo-q5" || s === "large-v3-turbo-q5") return "large-v3-turbo-q5_0";
+  if (s === "medium-q5" || s === "mediumq5_0") return "medium-q5_0";
+  if ((whisperModels.ids as readonly string[]).includes(s)) return s;
+  return whisperModels.defaultId;
+}
+
+export const SIMPLIFIED_ZH_HINT = "以下使用简体中文转写，标点用，。？！、；";
+
+export function normalizeWhisperLanguage(lang: string | undefined | null): string {
+  const s = (lang || "").trim().toLowerCase();
+  if (!s || s === "auto" || s === "detect") return "auto";
+  if (s.startsWith("zh") || s === "chinese" || s === "cn") return "zh";
+  if (s.startsWith("en") || s === "english") return "en";
+  if (s.length === 2) return s;
+  return "auto";
+}
+
+export function composeWhisperPrompt(language: string, userPrompt: string, previousText: string, maxChars = 400): string {
+  const lang = normalizeWhisperLanguage(language);
+  const hint = lang === "zh" || lang === "yue" ? SIMPLIFIED_ZH_HINT : "";
+  const user = (userPrompt || "").trim();
+  let prev = (previousText || "").trim();
+  const head = [hint, user].filter(Boolean).join(" ");
+  if (head.length >= maxChars) return head.slice(0, maxChars);
+  const room = maxChars - head.length - (head && prev ? 1 : 0);
+  if (prev.length > room) prev = room <= 0 ? "" : prev.slice(prev.length - room);
+  return [head, prev].filter(Boolean).join(" ");
 }

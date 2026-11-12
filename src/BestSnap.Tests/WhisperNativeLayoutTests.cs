@@ -77,6 +77,21 @@ namespace BestSnap.Tests
         }
 
         [Fact]
+        public void HasGpuRuntime_DetectsCudaOrVulkanTree()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "bs-gpu-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Assert.False(WhisperNativeLayout.HasGpuRuntime(root));
+                var cuda = Path.Combine(root, "runtimes", "cuda", "win-x64");
+                Directory.CreateDirectory(cuda);
+                File.WriteAllBytes(Path.Combine(cuda, "ggml-cuda-whisper.dll"), new byte[] { 1 });
+                Assert.True(WhisperNativeLayout.HasGpuRuntime(root));
+            }
+            finally { TryDelete(root); }
+        }
+
+        [Fact]
         public void Csproj_ExcludesWhisperNativesFromSingleFile()
         {
             var csproj = Path.Combine(RepoRoot, "src", "BestSnap", "BestSnap.csproj");
@@ -84,7 +99,12 @@ namespace BestSnap.Tests
             var text = File.ReadAllText(csproj);
             Assert.Contains("whisper.dll", text);
             Assert.Contains("ggml-cpu-whisper", text);
+            Assert.Contains("ggml-cuda-whisper", text);
+            Assert.Contains("ggml-vulkan-whisper", text);
+            Assert.Contains("Whisper.net.Runtime.Cuda.Windows", text);
+            Assert.Contains("Whisper.net.Runtime.Vulkan", text);
             Assert.Contains("ExcludeFromSingleFile=\"true\"", text);
+            Assert.Contains("runtimes/", text);
         }
 
         static string RepoRoot

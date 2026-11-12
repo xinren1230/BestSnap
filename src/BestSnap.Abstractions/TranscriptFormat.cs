@@ -69,47 +69,14 @@ namespace BestSnap.Plugins
         }
     }
 
-    public static class WhisperModels
-    {
-        public const string DefaultId = "base";
-        public static readonly string[] Ids = { "tiny", "base", "small", "medium" };
-
-        public static string Normalize(string id)
-        {
-            if (string.Equals(id, "tiny", StringComparison.OrdinalIgnoreCase)) return "tiny";
-            if (string.Equals(id, "small", StringComparison.OrdinalIgnoreCase)) return "small";
-            if (string.Equals(id, "medium", StringComparison.OrdinalIgnoreCase)) return "medium";
-            return DefaultId;
-        }
-
-        public static string FileName(string id) => "ggml-" + Normalize(id) + ".bin";
-
-        /// <summary>Approximate ggml weights size (bytes) for the progress UI.</summary>
-        public static long SizeBytes(string id) => Normalize(id) switch
-        {
-            "tiny" => 77_700_000,
-            "small" => 487_000_000,
-            "medium" => 1_530_000_000,
-            _ => 148_000_000, // base
-        };
-
-        public static string SizeLabel(string id)
-        {
-            double mb = SizeBytes(id) / (1024.0 * 1024.0);
-            if (mb >= 900) return (mb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB";
-            return mb.ToString("0") + " MB";
-        }
-    }
-
     /// <summary>
-    /// Rolling ASR windows (e.g. 8 s with 1.5 s overlap). Incoming cues are relative to the chunk;
-    /// stitching maps them to absolute time and drops the overlapped prefix already committed.
+    /// Rolling ASR windows. First caption is short; later windows are longer with overlap.
     /// </summary>
     public static class LiveChunkMath
     {
         public const double FirstWindowSeconds = 3.5;
-        public const double WindowSeconds = 8;
-        public const double OverlapSeconds = 1.5;
+        public const double WindowSeconds = 10;
+        public const double OverlapSeconds = 2;
         public static double HopSeconds => WindowSeconds - OverlapSeconds;
 
         public static double WindowForIndex(int index, double firstWindow = FirstWindowSeconds, double window = WindowSeconds) =>

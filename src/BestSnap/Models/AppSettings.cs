@@ -145,8 +145,12 @@ namespace BestSnap.Models
         public string OcrLanguage { get; set; }        // null/"" = auto (zh/ja/ko recognizers if installed + profile languages, best result wins)
         public FormulaSettings Formula { get; set; } = new FormulaSettings();
         public ChatSettings Chat { get; set; } = new ChatSettings();
-        /// <summary>tiny / base / small / medium. Downloaded on first use into %LocalAppData%\BestSnap\models\whisper.</summary>
+        /// <summary>ggml id (tiny / base / small / medium / large-v3-turbo and q5_0 variants). Downloaded on first use.</summary>
         public string WhisperModel { get; set; } = WhisperModels.DefaultId;
+        /// <summary>Whisper language: auto / zh / en / … Remembered across sessions.</summary>
+        public string WhisperLanguage { get; set; } = "auto";
+        /// <summary>Optional initial prompt / vocabulary hints for Whisper.</summary>
+        public string WhisperPrompt { get; set; }
         /// <summary>User has been told that a configured LLM will send transcript text to the network.</summary>
         public bool SummarizeNetworkConsent { get; set; }
         public WatermarkSettings Watermark { get; set; } = new WatermarkSettings();
