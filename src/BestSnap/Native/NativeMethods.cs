@@ -72,6 +72,11 @@ namespace BestSnap.Native
             return r;
         }
 
+        public const int AttachParentProcess = -1;
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AttachConsole(int dwProcessId);
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AllocConsole();
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool FreeConsole();
+
         public static RECT VirtualScreen => new RECT
         {
             Left = GetSystemMetrics(SM_XVIRTUALSCREEN), Top = GetSystemMetrics(SM_YVIRTUALSCREEN),

@@ -96,19 +96,30 @@ namespace BestSnap.Plugins
             return Math.Max(0, FireAt(index, firstWindow, window, overlap) - WindowForIndex(index, firstWindow, window));
         }
 
-        public static List<TranscriptCue> Stitch(IReadOnlyList<TranscriptCue> incomingRelative, double absStart, double committedThrough)
+        public static List<TranscriptCue> Stitch(IReadOnlyList<TranscriptCue> incomingRelative, double absStart, double committedThrough, double chunkDuration = 0)
         {
             var list = new List<TranscriptCue>();
             if (incomingRelative == null) return list;
             foreach (var c in incomingRelative)
             {
-                double a = absStart + c.Start;
-                double b = absStart + Math.Max(c.End, c.Start);
+                string text = WhisperDecode.NormalizeCueText(c.Text);
+                if (text.Length == 0) continue;
+                double start = c.Start, end = c.End;
+                if (double.IsNaN(start) || double.IsInfinity(start)) start = 0;
+                if (double.IsNaN(end) || double.IsInfinity(end)) end = start;
+                double a = absStart + start;
+                double b = absStart + Math.Max(end, start);
+                if (b - a < 0.04)
+                {
+                    // CUDA/q5 often returns 0-duration timestamps with valid text; keep the cue.
+                    a = Math.Max(absStart, committedThrough);
+                    double span = chunkDuration > 0 ? chunkDuration : 0.5;
+                    b = absStart + span;
+                    if (b <= a) b = a + 0.04;
+                }
                 if (b <= committedThrough + 1e-3) continue;
                 if (a < committedThrough) a = committedThrough;
                 if (b - a < 0.04) continue;
-                string text = (c.Text ?? "").Trim();
-                if (text.Length == 0) continue;
                 list.Add(new TranscriptCue { Start = a, End = b, Text = text });
             }
             return list;

@@ -144,6 +144,10 @@ namespace BestSnap.Tests
             Assert.Equal(WhisperBackend.Cpu, fb.Backend);
             Assert.Equal("large-v3-turbo-q5_0", fb.ModelId);
             Assert.Contains("GPU load failed", fb.Reason);
+            var decode = WhisperAutoSelect.CpuDecodeFallback(prev);
+            Assert.Equal(WhisperBackend.Cpu, decode.Backend);
+            Assert.Equal(prev.ModelId, decode.ModelId);
+            Assert.Contains("GPU decode empty", decode.Reason);
         }
 
         [Fact]

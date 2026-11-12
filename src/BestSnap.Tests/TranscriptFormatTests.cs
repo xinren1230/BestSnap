@@ -97,5 +97,26 @@ namespace BestSnap.Tests
             }, 1.5);
             Assert.Equal(4.5, t);
         }
+
+        [Fact]
+        public void Stitch_KeepsZeroDurationTextUsingChunkLength()
+        {
+            var added = LiveChunkMath.Stitch(
+                new[] { new TranscriptCue { Start = 0, End = 0, Text = "hello" } },
+                absStart: 3.5, committedThrough: 0, chunkDuration: 3.5);
+            var cue = Assert.Single(added);
+            Assert.Equal("hello", cue.Text);
+            Assert.Equal(3.5, cue.Start, 3);
+            Assert.Equal(7.0, cue.End, 3);
+        }
+
+        [Fact]
+        public void Stitch_DropsBlankAudio()
+        {
+            var added = LiveChunkMath.Stitch(
+                new[] { new TranscriptCue { Start = 0, End = 1, Text = "[BLANK_AUDIO]" } },
+                absStart: 0, committedThrough: 0, chunkDuration: 3.5);
+            Assert.Empty(added);
+        }
     }
 }

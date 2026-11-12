@@ -58,9 +58,19 @@ namespace BestSnap
             }
             catch { }
             bool cli = CliOptions.IsCommand(e.Args);
+            bool transcribeTest = TranscribeTestArgs.LooksLike(e.Args);
             _mutex = new Mutex(true, MutexName, out _ownsMutex);
             if (cli)
             {
+                if (transcribeTest)
+                {
+                    // Headless self-test: never forward to the GUI instance; attach a console.
+                    if (_ownsMutex) { try { _mutex.ReleaseMutex(); } catch { } _ownsMutex = false; }
+                    IsCliOnly = true;
+                    CliConsole.Ensure();
+                    RunCliOnly(e.Args);
+                    return;
+                }
                 if (!_ownsMutex)
                 {
                     // Forward to the running instance over the named pipe and return its exit code.

@@ -21,17 +21,33 @@ export function chunkAbsStart(index: number, window = WINDOW_SECONDS, overlap = 
   return Math.max(0, fireAt(index, firstWindow, window, overlap) - windowForIndex(index, firstWindow, window));
 }
 
-export function stitch(incomingRelative: TranscriptCue[] | null | undefined, absStart: number, committedThrough: number): TranscriptCue[] {
+function normalizeCueText(text: string | null | undefined): string {
+  const t = (text ?? "").trim();
+  if (!t) return "";
+  if (t.startsWith("[") && t.endsWith("]")) {
+    const inner = t.slice(1, -1).trim().toLowerCase();
+    if (inner === "blank_audio" || inner === "silence" || inner === "inaudible" || inner === "music") return "";
+  }
+  return t;
+}
+
+export function stitch(incomingRelative: TranscriptCue[] | null | undefined, absStart: number, committedThrough: number, chunkDuration = 0): TranscriptCue[] {
   const list: TranscriptCue[] = [];
   if (!incomingRelative) return list;
   for (const c of incomingRelative) {
+    const text = normalizeCueText(c.text);
+    if (!text) continue;
     let a = absStart + c.start;
-    const b = absStart + Math.max(c.end, c.start);
+    let b = absStart + Math.max(c.end, c.start);
+    if (b - a < 0.04) {
+      a = Math.max(absStart, committedThrough);
+      const span = chunkDuration > 0 ? chunkDuration : 0.5;
+      b = absStart + span;
+      if (b <= a) b = a + 0.04;
+    }
     if (b <= committedThrough + 1e-3) continue;
     if (a < committedThrough) a = committedThrough;
     if (b - a < 0.04) continue;
-    const text = (c.text ?? "").trim();
-    if (!text) continue;
     list.push({ start: a, end: b, text });
   }
   return list;

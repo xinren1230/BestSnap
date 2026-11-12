@@ -56,9 +56,18 @@ namespace BestSnap.Services
         public static async Task WarmupAsync(string id, IProgress<double> progress, CancellationToken ct) =>
             await WarmupAsync(id, live: false, progress, ct).ConfigureAwait(false);
 
-        public static async Task WarmupAsync(string id, bool live, IProgress<double> progress, CancellationToken ct)
+        public static async Task WarmupAsync(string id, bool live, IProgress<double> progress, CancellationToken ct) =>
+            await WarmupAsync(id, live, null, progress, ct).ConfigureAwait(false);
+
+        public static async Task WarmupAsync(string id, bool live, WhisperBackend? forceBackend, IProgress<double> progress, CancellationToken ct)
         {
             var pick = Resolve(id, live);
+            if (forceBackend is WhisperBackend b)
+            {
+                pick.Backend = b;
+                LastPick = pick;
+                Logger.Info("Whisper backend forced " + b);
+            }
             await LoadPickAsync(pick, progress, ct).ConfigureAwait(false);
         }
 
@@ -230,13 +239,25 @@ namespace BestSnap.Services
         public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, IProgress<double> progress, CancellationToken ct) =>
             await TranscribeFileAsync(media, modelId, null, progress, ct).ConfigureAwait(false);
 
-        public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
+        public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct) =>
+            await TranscribeFileAsync(media, modelId, null, decode, progress, ct).ConfigureAwait(false);
+
+        public static async Task<List<TranscriptCue>> TranscribeFileAsync(string media, string modelId, WhisperBackend? forceBackend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
         {
             var pick = Resolve(modelId, live: false);
+            if (forceBackend is WhisperBackend b)
+            {
+                pick.Backend = b;
+                LastPick = pick;
+                Logger.Info("Whisper backend forced " + b);
+            }
             short[] pcm = await LoadMono16kAsync(media, progress, ct).ConfigureAwait(false);
             progress?.Report(0.15);
             return await TranscribeSamplesAsync(pcm, pick.ModelId, pick.Backend, decode, progress, ct).ConfigureAwait(false);
         }
+
+        public static Task<short[]> LoadPcmAsync(string media, IProgress<double> progress, CancellationToken ct) =>
+            LoadMono16kAsync(media, progress, ct);
 
         public static Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, IProgress<double> progress, CancellationToken ct) =>
             TranscribeSamplesAsync(pcm, modelId, null, progress, ct);
@@ -247,10 +268,13 @@ namespace BestSnap.Services
         public static async Task<List<TranscriptCue>> TranscribeSamplesAsync(short[] pcm, string modelId, WhisperBackend backend, WhisperDecodeSettings decode, IProgress<double> progress, CancellationToken ct)
         {
             if (pcm == null || pcm.Length < AudioPcm.WhisperRate / 4)
+            {
+                Logger.Info("Whisper skip short pcm samples=" + (pcm == null ? 0 : pcm.Length));
                 return new List<TranscriptCue>();
+            }
             if (WhisperModels.IsAuto(modelId))
             {
-                var pick = Resolve(modelId, live: false);
+                var pick = Resolve(modelId, live: decode?.Live == true);
                 modelId = pick.ModelId;
                 backend = pick.Backend;
             }
@@ -270,23 +294,30 @@ namespace BestSnap.Services
                     Logger.Info("Whisper GPU load failed; CPU fallback " + fallback.Reason);
                     await EnsureModelAsync(fallback.ModelId, progress, ct).ConfigureAwait(false);
                     modelId = fallback.ModelId;
+                    backend = WhisperBackend.Cpu;
                     factory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu);
                 }
-                using var processor = BuildProcessor(factory, decode);
-                var floats = new float[pcm.Length];
-                for (int i = 0; i < pcm.Length; i++) floats[i] = pcm[i] / 32768f;
-                var cues = new List<TranscriptCue>();
-                await foreach (var seg in processor.ProcessAsync(floats, ct).ConfigureAwait(false))
+                var floats = AudioPcm.ToFloat32(pcm);
+                LogFloatStats(floats, pcm.Length);
+                var cues = await DecodeOnceAsync(factory, floats, pcm, decode, backend, "float32", ct).ConfigureAwait(false);
+                if (cues.Count == 0)
                 {
-                    string text = (seg.Text ?? "").Trim();
-                    if (text.Length == 0) continue;
-                    cues.Add(new TranscriptCue
+                    Logger.Info("Whisper float32 empty; retry 16 kHz PCM WAV stream backend=" + backend);
+                    cues = await DecodeOnceAsync(factory, null, pcm, decode, backend, "wav", ct).ConfigureAwait(false);
+                }
+                if (cues.Count == 0 && backend != WhisperBackend.Cpu)
+                {
+                    Logger.Info("Whisper GPU decode produced 0 cues; retrying same model on CPU");
+                    factory = GetFactory(ModelPath(modelId), WhisperBackend.Cpu);
+                    cues = await DecodeOnceAsync(factory, floats, pcm, decode, WhisperBackend.Cpu, "float32-cpu", ct).ConfigureAwait(false);
+                    if (cues.Count == 0)
+                        cues = await DecodeOnceAsync(factory, null, pcm, decode, WhisperBackend.Cpu, "wav-cpu", ct).ConfigureAwait(false);
+                    if (cues.Count > 0)
                     {
-                        Start = seg.Start.TotalSeconds,
-                        End = seg.End.TotalSeconds,
-                        Text = text
-                    });
-                    processor.Return(seg);
+                        LastPick = WhisperAutoSelect.CpuDecodeFallback(LastPick ?? new WhisperAutoPick { ModelId = modelId, Backend = backend });
+                        Logger.Info("Whisper CPU fallback produced " + cues.Count + " cues (" + LastPick.Reason + ")");
+                    }
+                    else Logger.Info("Whisper CPU retry also empty");
                 }
                 progress?.Report(1);
                 return cues;
@@ -294,20 +325,99 @@ namespace BestSnap.Services
             finally { RunLock.Release(); }
         }
 
-        internal static WhisperProcessor BuildProcessor(WhisperFactory factory, WhisperDecodeSettings decode)
+        static void LogFloatStats(float[] floats, int samples)
         {
-            var builder = factory.CreateBuilder();
-            string lang = WhisperDecode.NormalizeLanguage(decode?.Language);
-            string prompt = WhisperDecode.ComposePrompt(lang, decode?.Prompt, decode?.PreviousText);
-            if (!string.IsNullOrEmpty(prompt)) builder.WithPrompt(prompt);
-            if (lang == "auto") builder.WithLanguageDetection();
-            else builder.WithLanguage(lang);
+            if (floats == null || floats.Length == 0)
+            {
+                Logger.Info("Whisper pcm float32 empty samples=" + samples);
+                return;
+            }
+            float min = floats[0], max = floats[0];
+            double acc = 0;
+            for (int i = 0; i < floats.Length; i++)
+            {
+                float v = floats[i];
+                if (v < min) min = v;
+                if (v > max) max = v;
+                acc += (double)v * v;
+            }
+            double rms = Math.Sqrt(acc / floats.Length);
+            Logger.Info($"Whisper pcm float32 n={floats.Length} min={min:F4} max={max:F4} rms={rms:F4} dur={floats.Length / (double)AudioPcm.WhisperRate:F2}s");
+            if (max > 1.05f || min < -1.05f)
+                Logger.Info("Whisper pcm float32 out of [-1,1] — samples may be int16-as-float");
+        }
+
+        static async Task<List<TranscriptCue>> DecodeOnceAsync(WhisperFactory factory, float[] floats, short[] pcm, WhisperDecodeSettings decode, WhisperBackend backend, string path, CancellationToken ct)
+        {
+            using var processor = BuildProcessor(factory, decode, backend);
+            var cues = new List<TranscriptCue>();
+            int raw = 0, kept = 0;
+            MemoryStream wav = null;
             try
             {
-                var beam = builder.WithBeamSearchSamplingStrategy() as BeamSearchSamplingStrategyBuilder;
-                beam?.WithBeamSize(5);
+                IAsyncEnumerable<SegmentData> segs;
+                if (floats != null)
+                    segs = processor.ProcessAsync(floats, ct);
+                else
+                {
+                    wav = new MemoryStream();
+                    AudioPcm.WriteWav(wav, pcm ?? Array.Empty<short>(), AudioPcm.WhisperRate, 1);
+                    wav.Position = 0;
+                    Logger.Info($"Whisper WAV stream bytes={wav.Length} rate={AudioPcm.WhisperRate} ch=1 pcm16");
+                    segs = processor.ProcessAsync(wav, ct);
+                }
+                await foreach (var seg in segs.ConfigureAwait(false))
+                {
+                    raw++;
+                    string original = seg.Text ?? "";
+                    Logger.Info($"Whisper seg[{raw}] {seg.Start.TotalSeconds:F3}-{seg.End.TotalSeconds:F3} '{WhisperDecode.Trunc(original, 96)}' path={path}");
+                    string text = WhisperDecode.NormalizeCueText(original);
+                    if (text.Length > 0)
+                    {
+                        kept++;
+                        double start = seg.Start.TotalSeconds;
+                        double end = seg.End.TotalSeconds;
+                        if (double.IsNaN(start) || double.IsInfinity(start)) start = 0;
+                        if (double.IsNaN(end) || double.IsInfinity(end) || end < start) end = start;
+                        cues.Add(new TranscriptCue { Start = start, End = end, Text = text });
+                    }
+                    processor.Return(seg);
+                }
             }
-            catch { }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Logger.Error("Whisper.Decode." + path, ex);
+            }
+            finally { try { wav?.Dispose(); } catch { } }
+            Logger.Info($"Whisper decode done path={path} backend={backend} lang={WhisperDecode.ProcessorLanguage(decode?.Language)} beam={WhisperDecode.PreferBeamSearch(backend, decode?.Live == true)} raw={raw} kept={kept}");
+            return cues;
+        }
+
+        internal static WhisperProcessor BuildProcessor(WhisperFactory factory, WhisperDecodeSettings decode, WhisperBackend backend)
+        {
+            var builder = factory.CreateBuilder();
+            string lang = WhisperDecode.ProcessorLanguage(decode?.Language);
+            string prompt = WhisperDecode.ComposePrompt(lang, decode?.Prompt, decode?.PreviousText);
+            if (!string.IsNullOrEmpty(prompt)) builder.WithPrompt(prompt);
+            // whisper.cpp detect_language=true is detect-ONLY (zero segments). Auto must be WithLanguage("auto").
+            builder.WithLanguage(lang);
+            bool live = decode?.Live == true;
+            if (WhisperDecode.PreferBeamSearch(backend, live))
+            {
+                try
+                {
+                    var beam = builder.WithBeamSearchSamplingStrategy() as BeamSearchSamplingStrategyBuilder;
+                    beam?.WithBeamSize(5);
+                }
+                catch { }
+            }
+            else
+            {
+                try { builder.WithGreedySamplingStrategy(); }
+                catch { }
+            }
+            Logger.Info("Whisper processor lang=" + lang + " detectOnly=" + WhisperDecode.DetectLanguageOnly + " live=" + live + " backend=" + backend);
             return builder.Build();
         }
 

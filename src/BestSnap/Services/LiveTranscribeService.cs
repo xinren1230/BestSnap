@@ -41,6 +41,9 @@ namespace BestSnap.Services
         int _skipped;
         int _silentStreak;
         bool _reportedFail;
+        int _generation;
+        Task _stopTask;
+        readonly CaptureSessionState _session = new CaptureSessionState();
         string _modelId = WhisperModels.DefaultId;
         string _language = "auto";
         string _userPrompt;
@@ -48,6 +51,8 @@ namespace BestSnap.Services
         public bool IsRunning { get; private set; }
         public bool IsPaused { get; private set; }
         public bool HasStarted { get; private set; }
+        public CaptureSessionPhase SessionPhase => _session.Phase;
+        public int SessionCycle => _session.Cycle;
         public bool UsingMic => _useMic;
         public bool UsingSystem => _useSys;
         public float MicLevel { get; private set; }
@@ -71,11 +76,40 @@ namespace BestSnap.Services
 
         public async Task StartAsync(AudioRecordingSettings opts, string modelId, string language = null, string prompt = null)
         {
-            if (IsRunning) return;
+            if (_stopTask != null)
+            {
+                try { await _stopTask.ConfigureAwait(true); } catch (Exception ex) { Logger.Error("LiveStopWait", ex); }
+                _stopTask = null;
+            }
+            if (!_session.TryBeginStart(out string why))
+            {
+                if (_session.Phase == CaptureSessionPhase.Stopping && _stopTask != null)
+                {
+                    try { await _stopTask.ConfigureAwait(true); } catch { }
+                    _stopTask = null;
+                    if (_session.TryBeginStart(out why)) { /* continue */ }
+                    else
+                    {
+                        Logger.Info("Live start ignored: " + why + " phase=" + _session.Phase);
+                        return;
+                    }
+                }
+                else
+                {
+                    Logger.Info("Live start ignored: " + why + " phase=" + _session.Phase);
+                    return;
+                }
+            }
+            LogSession("start");
+            DisposeCaptures();
             opts = AudioRecordingSettings.Normalize(opts, null);
             _useMic = opts.Source != AudioRecordSourceKind.System;
             _useSys = opts.Source != AudioRecordSourceKind.Microphone;
-            if (!_useMic && !_useSys) throw new InvalidOperationException(L.T("请选择至少一个音频来源。"));
+            if (!_useMic && !_useSys)
+            {
+                FailStart(L.T("请选择至少一个音频来源。"));
+                throw new InvalidOperationException(L.T("请选择至少一个音频来源。"));
+            }
             _micVol = opts.MicVolume;
             _sysVol = opts.SystemVolume;
             _language = WhisperDecode.NormalizeLanguage(language);
@@ -97,24 +131,25 @@ namespace BestSnap.Services
             MicLevel = SystemLevel = 0;
             _paused = false;
             IsPaused = false;
+            IsRunning = false;
             HasStarted = false;
             _cts = new CancellationTokenSource();
+            int gen = ++_generation;
             SetStatus(L.T("正在加载模型…"));
-            Logger.Info($"Live start source={opts.Source} mic={_useMic} sys={_useSys} choice={modelId} lang={_language}");
+            Logger.Info($"Live start cycle={_session.Cycle} gen={gen} source={opts.Source} mic={_useMic} sys={_useSys} choice={modelId} lang={_language}");
 
             try
             {
                 await WhisperTranscriber.WarmupAsync(modelId, live: true, null, _cts.Token).ConfigureAwait(true);
                 _modelId = WhisperTranscriber.LastPick?.ModelId ?? WhisperModels.NormalizeWeights(modelId);
-                string why = WhisperTranscriber.LastPick?.Reason;
-                if (!string.IsNullOrEmpty(why))
-                    Logger.Info("Live whisper " + why);
+                string pickWhy = WhisperTranscriber.LastPick?.Reason;
+                if (!string.IsNullOrEmpty(pickWhy))
+                    Logger.Info("Live whisper " + pickWhy);
             }
             catch (Exception ex)
             {
                 Logger.Error("LiveWarmup", ex);
-                SetStatus(L.T("转写失败：\n") + ex.Message);
-                RaiseFailed(ex.Message);
+                FailStart(ex.Message);
                 throw;
             }
 
@@ -136,7 +171,8 @@ namespace BestSnap.Services
             _run = true;
             _mix = new Thread(MixLoop) { IsBackground = true, Name = "LiveMix" };
             _mix.Start();
-            _worker = Task.Run(() => Worker(_cts.Token));
+            var token = _cts.Token;
+            _worker = Task.Run(() => Worker(gen, token));
             try
             {
                 _mic?.StartRecording();
@@ -146,16 +182,31 @@ namespace BestSnap.Services
             {
                 Logger.Error("StartRecording", ex);
                 StopInternal(failed: true);
-                SetStatus(L.T("转写失败：\n") + ex.Message);
-                RaiseFailed(ex.Message);
                 throw;
             }
             IsRunning = true;
             HasStarted = true;
+            _session.TryMarkRunning(out _);
+            LogSession("running");
             SetStatus(L.T("正在聆听…（尚未检测到语音）"));
-            Logger.Info("Live capture started");
+            Logger.Info("Live capture started cycle=" + _session.Cycle);
             Raise(Started);
         }
+
+        void FailStart(string message)
+        {
+            DisposeCaptures();
+            IsRunning = false;
+            HasStarted = false;
+            IsPaused = false;
+            _session.MarkFailed();
+            LogSession("failed");
+            SetStatus(L.T("转写失败：\n") + message);
+            RaiseFailed(message);
+        }
+
+        void LogSession(string why) =>
+            Logger.Info($"Live session phase={_session.Phase} cycle={_session.Cycle} running={IsRunning} started={HasStarted} paused={IsPaused} why={why}");
 
         void Enqueue(ConcurrentQueue<short[]> q, WaveFormat fmt, byte[] buf, int bytes, bool isMic)
         {
@@ -209,21 +260,23 @@ namespace BestSnap.Services
             catch (Exception ex) { Logger.Error("LiveMix", ex); }
         }
 
-        async Task Worker(CancellationToken ct)
+        async Task Worker(int gen, CancellationToken ct)
         {
             try
             {
-                while (!ct.IsCancellationRequested)
+                while (!ct.IsCancellationRequested && gen == _generation)
                 {
                     if (!_jobs.TryDequeue(out var job))
                     {
                         await Task.Delay(40, ct).ConfigureAwait(false);
                         continue;
                     }
+                    if (gen != _generation) break;
                     await TranscribeChunk(job.Pcm, job.AbsStart, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
             catch (Exception ex)
             {
                 Logger.Error("LiveWhisper", ex);
@@ -255,15 +308,25 @@ namespace BestSnap.Services
             }
             _silentStreak = 0;
             _processed++;
-            Logger.Info($"Live chunk process processed={_processed} skipped={_skipped} rms={rms:F5} thresh={thresh:F5} samples={pcm.Length} abs={absStart:F2}");
+            Logger.Info($"Live chunk process processed={_processed} skipped={_skipped} rms={rms:F5} thresh={thresh:F5} samples={pcm.Length} abs={absStart:F2} dur={pcm.Length / (double)AudioPcm.WhisperRate:F2}");
+            if (WhisperDebugChunks.Enabled)
+            {
+                try
+                {
+                    string dump = WhisperDebugChunks.Write(_processed, pcm);
+                    if (!string.IsNullOrEmpty(dump)) Logger.Info("Live chunk dump " + dump);
+                }
+                catch (Exception ex) { Logger.Error("LiveDump", ex); }
+            }
             SetStatus(L.T("正在转写…"));
             string previous;
-            lock (_cueLock) previous = LastCueText(_cues);
+            lock (_cueLock) previous = LiveTranscribePipeline.LastCueText(_cues);
             var decode = new WhisperDecodeSettings
             {
                 Language = _language,
                 Prompt = _userPrompt,
-                PreviousText = previous
+                PreviousText = previous,
+                Live = true
             };
             List<TranscriptCue> rel;
             try
@@ -282,34 +345,25 @@ namespace BestSnap.Services
                 }
                 return;
             }
+            if (rel == null) rel = new List<TranscriptCue>();
+            Logger.Info($"Live chunk raw/kept cues={rel.Count} processed={_processed}");
+            for (int i = 0; i < rel.Count; i++)
+                Logger.Info($"Live cue[{i}] {rel[i].Start:F3}-{rel[i].End:F3} '{WhisperDecode.Trunc(rel[i].Text, 80)}'");
             List<TranscriptCue> added;
             string caption = "";
+            double chunkDur = pcm.Length / (double)AudioPcm.WhisperRate;
             lock (_cueLock)
             {
-                added = LiveChunkMath.Stitch(rel, absStart, _committed);
+                added = LiveChunkMath.Stitch(rel, absStart, _committed, chunkDur);
                 _cues.AddRange(added);
                 _committed = LiveChunkMath.ExtendCommitted(added, _committed);
                 if (_cues.Count > 0) caption = _cues[_cues.Count - 1].Text;
             }
+            Logger.Info($"Live stitch in={rel.Count} out={added.Count} committed={_committed:F2} total={_cues.Count} caption='{WhisperDecode.Trunc(caption, 80)}'");
             if (added.Count > 0) Raise(() => Caption?.Invoke(caption));
             if (IsPaused) SetStatus(L.T("已暂停（不保存音频）"));
             else if (_cues.Count == 0) SetStatus(L.T("正在聆听…（尚未检测到语音）"));
             else SetStatus(L.T("仅转写中（不保存音频）"));
-        }
-
-        static string LastCueText(List<TranscriptCue> cues, int maxCues = 4)
-        {
-            if (cues == null || cues.Count == 0) return "";
-            int from = cues.Count > maxCues ? cues.Count - maxCues : 0;
-            string s = "";
-            for (int i = from; i < cues.Count; i++)
-            {
-                string t = cues[i].Text;
-                if (string.IsNullOrWhiteSpace(t)) continue;
-                if (s.Length > 0) s += " ";
-                s += t.Trim();
-            }
-            return s;
         }
 
         static short[] Scale(short[] a, double vol)
@@ -344,28 +398,67 @@ namespace BestSnap.Services
 
         static void Drain(ConcurrentQueue<short[]> q) { while (q.TryDequeue(out _)) { } }
 
-        public void Pause() { if (IsRunning && !IsPaused) { _paused = true; IsPaused = true; SetStatus(L.T("已暂停（不保存音频）")); } }
+        public void Pause()
+        {
+            if (!_session.TryPause(out string why))
+            {
+                Logger.Info("Live pause ignored: " + why);
+                return;
+            }
+            _paused = true; IsPaused = true;
+            LogSession("pause");
+            SetStatus(L.T("已暂停（不保存音频）"));
+        }
         public void Resume()
         {
-            if (IsRunning && IsPaused)
+            if (!_session.TryResume(out string why))
             {
-                _paused = false; IsPaused = false;
-                SetStatus(_cues.Count == 0 ? L.T("正在聆听…（尚未检测到语音）") : L.T("仅转写中（不保存音频）"));
+                Logger.Info("Live resume ignored: " + why);
+                return;
             }
+            _paused = false; IsPaused = false;
+            LogSession("resume");
+            SetStatus(_cues.Count == 0 ? L.T("正在聆听…（尚未检测到语音）") : L.T("仅转写中（不保存音频）"));
         }
 
         public void Stop()
         {
-            if (!IsRunning && _mix == null) return;
-            try { StopInternal(failed: false); }
-            catch (Exception ex)
+            if (!_session.TryBeginStop(out string why))
             {
-                Logger.Error("LiveStop", ex);
-                RaiseFailed(ex.Message);
+                if (_session.Phase == CaptureSessionPhase.Stopping)
+                {
+                    Logger.Info("Live stop ignored: already stopping");
+                    return;
+                }
+                if (!IsRunning && _mix == null && _mic == null && _loop == null)
+                {
+                    Logger.Info("Live stop ignored: " + why);
+                    return;
+                }
+                Logger.Info("Live stop recovering leftover capture (" + why + ")");
+                _session.Reset("leftover");
+                if (!_session.TryBeginStart(out _) || !_session.TryBeginStop(out _))
+                {
+                    DisposeCaptures();
+                    IsRunning = false; HasStarted = false; IsPaused = false;
+                    _session.Reset("force-idle");
+                    LogSession("force-idle");
+                    return;
+                }
             }
+            LogSession("stop");
+            _stopTask = Task.Run(() =>
+            {
+                try { StopInternal(failed: false); }
+                catch (Exception ex)
+                {
+                    Logger.Error("LiveStop", ex);
+                    RaiseFailed(ex.Message);
+                }
+            });
         }
 
-        void StopInternal(bool failed)
+        void DisposeCaptures()
         {
             _run = false;
             try { _mic?.StopRecording(); } catch { }
@@ -374,6 +467,12 @@ namespace BestSnap.Services
             try { _mic?.Dispose(); } catch { }
             try { _loop?.Dispose(); } catch { }
             _mic = null; _loop = null; _mix = null;
+        }
+
+        void StopInternal(bool failed)
+        {
+            _generation++;
+            DisposeCaptures();
             short[] tail = null;
             double tailStart = 0;
             if (!failed && _ring.Count >= AudioPcm.WhisperRate / 2)
@@ -382,20 +481,30 @@ namespace BestSnap.Services
                 tailStart = LiveChunkMath.ChunkAbsStart(Math.Max(0, _chunkIndex));
             }
             _ring.Clear();
-            try { _cts?.Cancel(); } catch { }
-            try { _worker?.Wait(8000); } catch { }
-            try { _cts?.Dispose(); } catch { }
+            var cts = _cts;
+            var worker = _worker;
+            try { cts?.Cancel(); } catch { }
+            try { worker?.Wait(15000); } catch { }
+            try { cts?.Dispose(); } catch { }
             _cts = null; _worker = null;
             if (tail != null)
             {
                 try { TranscribeChunk(tail, tailStart, CancellationToken.None).GetAwaiter().GetResult(); }
                 catch (Exception ex) { Logger.Error("LiveTail", ex); }
             }
-            IsRunning = false; IsPaused = false;
-            Logger.Info($"Live stop processed={_processed} skipped={_skipped} failed={failed}");
+            var prev = _session.Phase;
+            IsRunning = false; IsPaused = false; HasStarted = false;
+            if (failed) _session.MarkFailed();
+            else _session.MarkFinished();
+            LogSession(failed ? "failed" : "finished");
+            Logger.Info($"Live stop processed={_processed} skipped={_skipped} failed={failed} cues={_cues.Count}");
             SetStatus(failed ? L.T("转写失败") : L.T("转写已停止（未保存音频）"));
-            if (failed) return;
-            Raise(Stopped);
+            if (failed)
+            {
+                RaiseFailed(Status);
+                return;
+            }
+            if (prev == CaptureSessionPhase.Stopping) Raise(Stopped);
         }
 
         void SetStatus(string s)

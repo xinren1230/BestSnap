@@ -60,6 +60,16 @@ namespace BestSnap.Plugins
             return Math.Sqrt(acc / n);
         }
 
+        /// <summary>int16 PCM → float32 in [-1, 1] for Whisper.net <c>ProcessAsync</c>.</summary>
+        public static float[] ToFloat32(short[] pcm)
+        {
+            if (pcm == null || pcm.Length == 0) return Array.Empty<float>();
+            var f = new float[pcm.Length];
+            for (int i = 0; i < pcm.Length; i++)
+                f[i] = pcm[i] / 32768f;
+            return f;
+        }
+
         /// <summary>Log-ish meter in 0..1 so quiet speech is still visible.</summary>
         public static double Meter(double rms)
         {
@@ -290,14 +300,14 @@ namespace BestSnap.Plugins
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return Array.Empty<short>();
             using var fs = File.OpenRead(path);
-            if (!TryReadPcmWav(fs, out int rate, out int ch, out int bits, out long dataPos, out int dataBytes))
+            if (!TryReadWav(fs, out int rate, out int ch, out int bits, out long dataPos, out int dataBytes, out bool ieee))
                 return Array.Empty<short>();
             if (dataBytes <= 0 || bits < 8) return Array.Empty<short>();
             int n = Math.Min(dataBytes, int.MaxValue - 16);
             var buf = new byte[n];
             fs.Position = dataPos;
             int got = fs.Read(buf, 0, n);
-            return ToMono16k(buf, got, rate, ch, bits);
+            return ToMono16k(buf, got, rate, ch, bits, ieee);
         }
 
         public static string NormalizeSource(string s)
@@ -385,7 +395,15 @@ namespace BestSnap.Plugins
 
         public static bool TryReadPcmWav(Stream s, out int sampleRate, out int channels, out int bits, out long dataPos, out int dataBytes)
         {
-            sampleRate = 0; channels = 0; bits = 0; dataPos = 0; dataBytes = 0;
+            if (!TryReadWav(s, out sampleRate, out channels, out bits, out dataPos, out dataBytes, out bool ieee))
+                return false;
+            return !ieee;
+        }
+
+        /// <summary>PCM (format 1) or IEEE float (format 3) WAV.</summary>
+        public static bool TryReadWav(Stream s, out int sampleRate, out int channels, out int bits, out long dataPos, out int dataBytes, out bool ieeeFloat)
+        {
+            sampleRate = 0; channels = 0; bits = 0; dataPos = 0; dataBytes = 0; ieeeFloat = false;
             if (s == null || !s.CanSeek) return false;
             s.Position = 0;
             var hdr = new byte[12];
@@ -408,12 +426,16 @@ namespace BestSnap.Plugins
                     channels = BinaryPrimitives.ReadInt16LittleEndian(fmtBuf.AsSpan(2));
                     sampleRate = BinaryPrimitives.ReadInt32LittleEndian(fmtBuf.AsSpan(4));
                     bits = BinaryPrimitives.ReadInt16LittleEndian(fmtBuf.AsSpan(14));
+                    ieeeFloat = fmt == WaveFormatIeeeFloat;
                 }
                 else if (chBuf[0] == 'd' && chBuf[1] == 'a' && chBuf[2] == 't' && chBuf[3] == 'a')
                 {
                     dataPos = s.Position;
                     dataBytes = size;
-                    return fmt == 1 && channels > 0 && sampleRate > 0 && bits > 0;
+                    bool ok = (fmt == 1 || fmt == WaveFormatIeeeFloat)
+                        && channels > 0 && sampleRate > 0 && bits > 0;
+                    if (fmt == 1) ieeeFloat = false;
+                    return ok;
                 }
                 if (next > s.Length) return false;
                 s.Position = next;

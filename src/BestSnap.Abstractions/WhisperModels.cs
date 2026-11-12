@@ -173,6 +173,8 @@ namespace BestSnap.Plugins
         public string Language { get; set; } = "auto";
         public string Prompt { get; set; }
         public string PreviousText { get; set; }
+        /// <summary>Live chunks skip beam search (greedy is reliable on CUDA q5_0).</summary>
+        public bool Live { get; set; }
     }
 
     public static class WhisperDecode
@@ -216,6 +218,50 @@ namespace BestSnap.Plugins
         {
             lang = NormalizeLanguage(lang);
             return lang == "zh" || lang == "yue";
+        }
+
+        /// <summary>
+        /// whisper.cpp <c>detect_language=true</c> means detect-only (no segments).
+        /// Auto transcription must pass language "auto" with this left false.
+        /// </summary>
+        public const bool DetectLanguageOnly = false;
+
+        /// <summary>Value for Whisper.net <c>WithLanguage</c>. "auto" detects AND transcribes.</summary>
+        public static string ProcessorLanguage(string lang) => NormalizeLanguage(lang);
+
+        /// <summary>Beam search is CPU file-transcribe only; live/GPU uses greedy.</summary>
+        public static bool PreferBeamSearch(WhisperBackend backend, bool live) =>
+            !live && backend == WhisperBackend.Cpu;
+
+        public static bool IsJunkCue(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return true;
+            text = text.Trim();
+            if (text.Length >= 2 && text[0] == '[' && text[text.Length - 1] == ']')
+            {
+                string inner = text.Substring(1, text.Length - 2).Trim();
+                if (inner.Equals("BLANK_AUDIO", StringComparison.OrdinalIgnoreCase)) return true;
+                if (inner.Equals("silence", StringComparison.OrdinalIgnoreCase)) return true;
+                if (inner.Equals("inaudible", StringComparison.OrdinalIgnoreCase)) return true;
+                if (inner.Equals("music", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        public static string NormalizeCueText(string text)
+        {
+            text = (text ?? "").Trim();
+            if (text.Length == 0 || IsJunkCue(text)) return "";
+            return text;
+        }
+
+        public static string Trunc(string s, int max)
+        {
+            s ??= "";
+            s = s.Replace('\r', ' ').Replace('\n', ' ');
+            if (max < 8) max = 8;
+            if (s.Length <= max) return s;
+            return s.Substring(0, max - 1) + "…";
         }
 
         public static string ComposePrompt(string language, string userPrompt, string previousText, int maxChars = PromptMaxChars)

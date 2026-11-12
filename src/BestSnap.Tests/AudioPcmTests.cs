@@ -71,6 +71,16 @@ namespace BestSnap.Tests
         }
 
         [Fact]
+        public void ToFloat32_NormalizesInt16ToUnitRange()
+        {
+            var f = AudioPcm.ToFloat32(new short[] { 0, 32767, -32768, 16384 });
+            Assert.Equal(0, f[0]);
+            Assert.InRange(f[1], 0.99f, 1f);
+            Assert.Equal(-1f, f[2]);
+            Assert.InRange(f[3], 0.49f, 0.51f);
+        }
+
+        [Fact]
         public void ToMono16k_IeeeFloat32()
         {
             var src = BitConverter.GetBytes(0.5f);

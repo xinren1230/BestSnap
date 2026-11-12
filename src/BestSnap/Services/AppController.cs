@@ -398,9 +398,15 @@ namespace BestSnap.Services
             if (_live.IsRunning) { _liveWin?.Activate(); return; }
             if (_recorder.IsRecording || _audio.IsRecording)
                 throw new InvalidOperationException(L.T("请先停止当前录制。"));
-            Logger.Info("StartLiveTranscribe");
+            var old = _liveWin;
+            _liveWin = null;
+            if (old != null)
+            {
+                try { old.Close(); } catch { }
+            }
+            Logger.Info("StartLiveTranscribe cycle=" + _live.SessionCycle);
             _liveWin = new LiveCaptionWindow(_live, _settings, owner ?? _toolbar);
-            _liveWin.Closed += (o, e) => _liveWin = null;
+            _liveWin.Closed += (o, e) => { if (ReferenceEquals(_liveWin, o)) _liveWin = null; };
             _liveWin.Show();
             _ = StartLiveCapture(opts);
         }

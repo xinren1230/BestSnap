@@ -190,6 +190,23 @@ namespace BestSnap.Plugins
             };
         }
 
+        /// <summary>GPU loaded but produced no segments; retry the same weights on CPU.</summary>
+        public static WhisperAutoPick CpuDecodeFallback(WhisperAutoPick previous)
+        {
+            previous ??= new WhisperAutoPick { ModelId = "base" };
+            return new WhisperAutoPick
+            {
+                ModelId = WhisperModels.NormalizeWeights(previous.ModelId),
+                Backend = WhisperBackend.Cpu,
+                DeviceName = previous.DeviceName,
+                VramBytes = previous.VramBytes,
+                RamBytes = previous.RamBytes,
+                CpuCores = previous.CpuCores,
+                Manual = previous.Manual,
+                FallbackNote = "GPU decode empty, CPU retry",
+            };
+        }
+
         public static WhisperGpuInfo BestNvidia(WhisperHardware hw)
         {
             WhisperGpuInfo best = null;

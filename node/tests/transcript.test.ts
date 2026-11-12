@@ -101,6 +101,19 @@ describe("transcript + live stitch", () => {
     assert.match(srt, /00:00:12,000 --> 00:00:13,000/);
   });
 
+  it("stitch keeps zero-duration text using chunk length", () => {
+    const added = stitch([{ start: 0, end: 0, text: "hello" }], 3.5, 0, 3.5);
+    assert.equal(added.length, 1);
+    assert.equal(added[0].text, "hello");
+    assert.equal(added[0].start, 3.5);
+    assert.equal(added[0].end, 7);
+  });
+
+  it("stitch drops blank audio", () => {
+    const added = stitch([{ start: 0, end: 1, text: "[BLANK_AUDIO]" }], 0, 0, 3.5);
+    assert.equal(added.length, 0);
+  });
+
   it("extendCommitted takes max end", () => {
     assert.equal(
       extendCommitted(

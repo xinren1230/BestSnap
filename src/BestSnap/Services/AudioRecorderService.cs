@@ -28,10 +28,13 @@ namespace BestSnap.Services
         AudioRecordFileFormat _format;
         double _micVol = 1, _sysVol = 1;
         bool _useMic, _useSys;
+        readonly CaptureSessionState _session = new CaptureSessionState();
 
         public bool IsRecording { get; private set; }
         public bool IsPaused { get; private set; }
         public bool HasStarted { get; private set; }
+        public CaptureSessionPhase SessionPhase => _session.Phase;
+        public int SessionCycle => _session.Cycle;
         public string CurrentFile { get; private set; }
         public float MicLevel { get; private set; }
         public float SystemLevel { get; private set; }
@@ -67,11 +70,41 @@ namespace BestSnap.Services
 
         public void Start(AudioRecordingSettings opts, string defaultFolder)
         {
-            if (IsRecording) return;
+            if (IsRecording && (_mic != null || _loop != null))
+            {
+                Logger.Info("Audio start ignored: already recording phase=" + _session.Phase);
+                return;
+            }
+            if (IsRecording)
+            {
+                Logger.Info("Audio stuck IsRecording with no capture; resetting");
+                ResetFlags("stuck");
+            }
+            if (!_session.TryBeginStart(out string why))
+            {
+                if (IsRecording && (_mic != null || _loop != null))
+                {
+                    Logger.Info("Audio start ignored: " + why);
+                    return;
+                }
+                Logger.Info("Audio start recovering " + why);
+                _session.Reset("recover");
+                if (!_session.TryBeginStart(out why))
+                {
+                    Logger.Info("Audio start ignored: " + why);
+                    return;
+                }
+            }
+            DisposeCaptures();
+            Logger.Info("Audio session Starting cycle=" + _session.Cycle);
             opts = AudioRecordingSettings.Normalize(opts, defaultFolder);
             _useMic = opts.Source != AudioRecordSourceKind.System;
             _useSys = opts.Source != AudioRecordSourceKind.Microphone;
-            if (!_useMic && !_useSys) throw new InvalidOperationException(L.T("请选择至少一个音频来源。"));
+            if (!_useMic && !_useSys)
+            {
+                _session.MarkFailed();
+                throw new InvalidOperationException(L.T("请选择至少一个音频来源。"));
+            }
             string folder = TempRecordingStore.EnsureFolder(AppPaths.LocalData);
             _format = opts.Format;
             _micVol = opts.MicVolume;
@@ -127,6 +160,8 @@ namespace BestSnap.Services
             }
             IsRecording = true;
             HasStarted = true;
+            _session.TryMarkRunning(out _);
+            Logger.Info("Audio session Running cycle=" + _session.Cycle);
             Raise(Started);
         }
 
@@ -223,12 +258,31 @@ namespace BestSnap.Services
 
         static void Drain(ConcurrentQueue<short[]> q) { while (q.TryDequeue(out _)) { } }
 
-        public void Pause() { if (IsRecording && !IsPaused) { _paused = true; IsPaused = true; } }
-        public void Resume() { if (IsRecording && IsPaused) { _paused = false; IsPaused = false; } }
+        public void Pause()
+        {
+            if (!_session.TryPause(out string why)) { Logger.Info("Audio pause ignored: " + why); return; }
+            _paused = true; IsPaused = true;
+            Logger.Info("Audio session Paused");
+        }
+        public void Resume()
+        {
+            if (!_session.TryResume(out string why)) { Logger.Info("Audio resume ignored: " + why); return; }
+            _paused = false; IsPaused = false;
+            Logger.Info("Audio session Running");
+        }
 
         public void Stop()
         {
-            if (!IsRecording && _wav == null) return;
+            if (!_session.TryBeginStop(out string why))
+            {
+                if (!IsRecording && _wav == null && _mic == null && _loop == null)
+                {
+                    Logger.Info("Audio stop ignored: " + why);
+                    return;
+                }
+                Logger.Info("Audio stop leftover (" + why + ")");
+            }
+            Logger.Info("Audio session Stopping cycle=" + _session.Cycle);
             try { StopInternal(failed: false); }
             catch (Exception ex)
             {
@@ -237,7 +291,7 @@ namespace BestSnap.Services
             }
         }
 
-        void StopInternal(bool failed)
+        void DisposeCaptures()
         {
             _run = false;
             try { _mic?.StopRecording(); } catch { }
@@ -246,6 +300,19 @@ namespace BestSnap.Services
             try { _mic?.Dispose(); } catch { }
             try { _loop?.Dispose(); } catch { }
             _mic = null; _loop = null; _mix = null;
+        }
+
+        void ResetFlags(string why)
+        {
+            DisposeCaptures();
+            IsRecording = false; IsPaused = false; HasStarted = false;
+            _session.Reset(why);
+            Logger.Info("Audio session Idle (" + why + ")");
+        }
+
+        void StopInternal(bool failed)
+        {
+            DisposeCaptures();
             string wav = _wavPath, final = _finalPath;
             var fmt = _format;
             lock (this)
@@ -255,12 +322,16 @@ namespace BestSnap.Services
                 try { _fs?.Dispose(); } catch { }
                 _fs = null;
             }
-            IsRecording = false; IsPaused = false;
+            IsRecording = false; IsPaused = false; HasStarted = false;
             if (failed)
             {
+                _session.MarkFailed();
+                Logger.Info("Audio session Failed cycle=" + _session.Cycle);
                 try { if (wav != null && File.Exists(wav)) File.Delete(wav); } catch { }
                 return;
             }
+            _session.MarkFinished();
+            Logger.Info("Audio session Finished cycle=" + _session.Cycle);
             try
             {
                 if (fmt == AudioRecordFileFormat.Mp3 && wav != null)

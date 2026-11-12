@@ -136,5 +136,20 @@ namespace BestSnap.Tests
             Assert.True(clipped.Length <= 80);
             Assert.StartsWith("term", clipped);
         }
+
+        [Fact]
+        public void AutoLanguage_IsNotDetectOnly_AndGreedyOnGpuLive()
+        {
+            Assert.False(WhisperDecode.DetectLanguageOnly);
+            Assert.Equal("auto", WhisperDecode.ProcessorLanguage("auto"));
+            Assert.Equal("auto", WhisperDecode.ProcessorLanguage(null));
+            Assert.False(WhisperDecode.PreferBeamSearch(WhisperBackend.Cuda, live: true));
+            Assert.False(WhisperDecode.PreferBeamSearch(WhisperBackend.Cuda, live: false));
+            Assert.False(WhisperDecode.PreferBeamSearch(WhisperBackend.Cpu, live: true));
+            Assert.True(WhisperDecode.PreferBeamSearch(WhisperBackend.Cpu, live: false));
+            Assert.True(WhisperDecode.IsJunkCue("[BLANK_AUDIO]"));
+            Assert.Equal("", WhisperDecode.NormalizeCueText("  [BLANK_AUDIO]  "));
+            Assert.Equal("hello", WhisperDecode.NormalizeCueText(" hello "));
+        }
     }
 }

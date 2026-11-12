@@ -23,8 +23,11 @@ namespace BestSnap.Services
     {
         private Recorder _rec;
         private GifRecorder _gif;
+        readonly CaptureSessionState _session = new CaptureSessionState();
         public bool IsRecording { get; private set; }
         public bool IsPaused { get; private set; }
+        public CaptureSessionPhase SessionPhase => _session.Phase;
+        public int SessionCycle => _session.Cycle;
         public string CurrentFile { get; private set; }
         public event Action<string> Completed;
         /// <summary>Raised (UI thread) when frames are actually being captured — status Recording, not the Record() call (MF startup can take seconds).</summary>
@@ -153,8 +156,38 @@ namespace BestSnap.Services
 
         public void Start(RecordingRequest req, string defaultFolder)
         {
-            if (IsRecording) return;
+            if (IsRecording && (_rec != null || _gif != null))
+            {
+                Logger.Info("Recorder start ignored: already recording phase=" + _session.Phase);
+                return;
+            }
+            if (IsRecording)
+            {
+                Logger.Info("Recorder stuck IsRecording with no backend; resetting");
+                IsRecording = false; IsPaused = false; HasStarted = false;
+                _session.Reset("stuck");
+            }
+            if (!_session.TryBeginStart(out string why))
+            {
+                if (IsRecording && (_rec != null || _gif != null))
+                {
+                    Logger.Info("Recorder start ignored: " + why);
+                    return;
+                }
+                Logger.Info("Recorder start recovering " + why);
+                _session.Reset("recover");
+                if (!_session.TryBeginStart(out why))
+                {
+                    Logger.Info("Recorder start ignored: " + why);
+                    return;
+                }
+            }
+            Release();
+            _gif = null;
+            Logger.Info("Recorder session Starting cycle=" + _session.Cycle);
             HasStarted = false;
+            try
+            {
             var o = req.Options;
             bool gif = o.Format == RecordFormat.Gif;
             if (!string.IsNullOrWhiteSpace(req.OutputPath))
@@ -262,7 +295,9 @@ namespace BestSnap.Services
                 Logger.Info("Recorder: complete " + e.FilePath + (File.Exists(e.FilePath) ? " (" + new FileInfo(e.FilePath).Length + " bytes)" : " (missing)"));
                 ui.BeginInvoke(new Action(() =>
                 {
-                    IsRecording = false; IsPaused = false; StopExtras();
+                    IsRecording = false; IsPaused = false; HasStarted = false; StopExtras();
+                    _session.MarkFinished();
+                    Logger.Info("Recorder session Finished cycle=" + _session.Cycle);
                     Completed?.Invoke(e.FilePath);
                     if (ReferenceEquals(_rec, rec)) Release(); // dispose only after the file has been finalized and handed off
                 }));
@@ -270,11 +305,31 @@ namespace BestSnap.Services
             rec.OnRecordingFailed += (s, e) =>
             {
                 Logger.Info("Recorder: FAILED " + e.Error + " (file " + e.FilePath + ")");
-                ui.BeginInvoke(new Action(() => { IsRecording = false; IsPaused = false; StopExtras(); if (ReferenceEquals(_rec, rec)) Release(); Failed?.Invoke(e.Error); }));
+                ui.BeginInvoke(new Action(() =>
+                {
+                    IsRecording = false; IsPaused = false; HasStarted = false; StopExtras();
+                    _session.MarkFailed();
+                    Logger.Info("Recorder session Failed cycle=" + _session.Cycle);
+                    if (ReferenceEquals(_rec, rec)) Release();
+                    Failed?.Invoke(e.Error);
+                }));
             };
             StartExtras(req);
             _rec.Record(CurrentFile);
             IsRecording = true;
+            _session.TryMarkRunning(out _);
+            Logger.Info("Recorder session Running cycle=" + _session.Cycle);
+            }
+            catch
+            {
+                IsRecording = false; IsPaused = false; HasStarted = false;
+                try { Release(); } catch { }
+                _gif = null;
+                StopExtras();
+                _session.MarkFailed();
+                Logger.Info("Recorder session Failed cycle=" + _session.Cycle + " start-throw");
+                throw;
+            }
         }
 
         private void StartGif(RecordingRequest req)
@@ -304,12 +359,27 @@ namespace BestSnap.Services
                 var b = scr.Bounds; rect = () => new Int32Rect(b.X, b.Y, b.Width, b.Height);
             }
             _gif = new GifRecorder(CurrentFile, rect, o.GifFps, o.GifMaxWidth, o.ShowCursor);
-            _gif.Completed += f => { IsRecording = false; IsPaused = false; _gif = null; StopExtras(); Completed?.Invoke(f); };
-            _gif.Failed += e => { IsRecording = false; IsPaused = false; _gif = null; StopExtras(); Failed?.Invoke(e); };
+            _gif.Completed += f =>
+            {
+                IsRecording = false; IsPaused = false; HasStarted = false; _gif = null; StopExtras();
+                _session.MarkFinished();
+                Logger.Info("Recorder session Finished cycle=" + _session.Cycle + " gif");
+                Completed?.Invoke(f);
+            };
+            _gif.Failed += e =>
+            {
+                IsRecording = false; IsPaused = false; HasStarted = false; _gif = null; StopExtras();
+                _session.MarkFailed();
+                Logger.Info("Recorder session Failed cycle=" + _session.Cycle + " gif");
+                Failed?.Invoke(e);
+            };
             StartExtras(req);
             _gif.Start();
             IsRecording = true;
-            HasStarted = true; Application.Current?.Dispatcher.BeginInvoke(new Action(() => Started?.Invoke()));
+            HasStarted = true;
+            _session.TryMarkRunning(out _);
+            Logger.Info("Recorder session Running cycle=" + _session.Cycle + " gif");
+            Application.Current?.Dispatcher.BeginInvoke(new Action(() => Started?.Invoke()));
         }
 
         /// <summary>Change mic / system volume while recording (MP4 only).</summary>
@@ -335,9 +405,33 @@ namespace BestSnap.Services
             return System.Windows.Forms.Screen.PrimaryScreen;
         }
 
-        public void Pause() { if (IsRecording && !IsPaused) { _rec?.Pause(); _gif?.Pause(); IsPaused = true; } }
-        public void Resume() { if (IsRecording && IsPaused) { _rec?.Resume(); _gif?.Resume(); IsPaused = false; } }
-        public void Stop() { Logger.Info("Recorder: Stop requested"); _rec?.Stop(); _gif?.Stop(); }
+        public void Pause()
+        {
+            if (!_session.TryPause(out string why)) { Logger.Info("Recorder pause ignored: " + why); return; }
+            _rec?.Pause(); _gif?.Pause(); IsPaused = true;
+            Logger.Info("Recorder session Paused");
+        }
+        public void Resume()
+        {
+            if (!_session.TryResume(out string why)) { Logger.Info("Recorder resume ignored: " + why); return; }
+            _rec?.Resume(); _gif?.Resume(); IsPaused = false;
+            Logger.Info("Recorder session Running");
+        }
+        public void Stop()
+        {
+            if (!_session.TryBeginStop(out string why))
+            {
+                if (!IsRecording && _rec == null && _gif == null)
+                {
+                    Logger.Info("Recorder stop ignored: " + why);
+                    return;
+                }
+                Logger.Info("Recorder stop leftover (" + why + ")");
+            }
+            Logger.Info("Recorder session Stopping cycle=" + _session.Cycle);
+            _rec?.Stop();
+            _gif?.Stop();
+        }
 
         /// <summary>Free native Media Foundation / D3D resources held by the recorder.</summary>
         private void Release()
