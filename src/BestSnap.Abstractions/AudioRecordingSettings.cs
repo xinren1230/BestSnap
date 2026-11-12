@@ -11,6 +11,8 @@ namespace BestSnap.Plugins
     public class AudioRecordingSettings
     {
         public AudioRecordSourceKind Source { get; set; } = AudioRecordSourceKind.Microphone;
+        /// <summary>Last transcribe-only source. Null = never chosen; UI defaults to Mix.</summary>
+        public AudioRecordSourceKind? LiveSource { get; set; }
         public string MicrophoneDevice { get; set; }
         public string SystemDevice { get; set; }
         public AudioRecordFileFormat Format { get; set; } = AudioRecordFileFormat.Wav;
@@ -22,6 +24,7 @@ namespace BestSnap.Plugins
         {
             s ??= new AudioRecordingSettings();
             if (!Enum.IsDefined(typeof(AudioRecordSourceKind), s.Source)) s.Source = AudioRecordSourceKind.Microphone;
+            if (s.LiveSource.HasValue && !Enum.IsDefined(typeof(AudioRecordSourceKind), s.LiveSource.Value)) s.LiveSource = null;
             if (!Enum.IsDefined(typeof(AudioRecordFileFormat), s.Format)) s.Format = AudioRecordFileFormat.Wav;
             s.MicVolume = AudioPcm.ClampVolume(s.MicVolume);
             s.SystemVolume = AudioPcm.ClampVolume(s.SystemVolume);

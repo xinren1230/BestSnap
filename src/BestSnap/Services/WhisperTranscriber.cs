@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BestSnap.Plugins;
 using Whisper.net;
 using Whisper.net.Ggml;
+using Whisper.net.LibraryLoader;
 
 namespace BestSnap.Services
 {
@@ -37,6 +38,20 @@ namespace BestSnap.Services
             "medium" => GgmlType.Medium,
             _ => GgmlType.Base
         };
+
+        public static async Task WarmupAsync(string id, IProgress<double> progress, CancellationToken ct)
+        {
+            id = WhisperModels.Normalize(id);
+            string path = ModelPath(id);
+            Logger.Info("Whisper warmup begin model=" + id);
+            await EnsureModelAsync(id, progress, ct).ConfigureAwait(false);
+            long bytes = 0;
+            try { if (File.Exists(path)) bytes = new FileInfo(path).Length; } catch { }
+            Logger.Info($"Whisper model file ready path={path} bytes={bytes}");
+            EnsureNativePath();
+            GetFactory(path);
+            Logger.Info("Whisper native factory loaded " + path);
+        }
 
         public static async Task EnsureModelAsync(string id, IProgress<double> progress, CancellationToken ct)
         {
@@ -131,12 +146,66 @@ namespace BestSnap.Services
             {
                 if (_factory != null && string.Equals(_factoryPath, path, StringComparison.OrdinalIgnoreCase))
                     return _factory;
+                EnsureNativePath();
                 _factory?.Dispose();
+                Logger.Info("Whisper FromPath " + path);
                 var opts = new WhisperFactoryOptions { UseGpu = false };
                 _factory = WhisperFactory.FromPath(path, opts);
                 _factoryPath = path;
+                Logger.Info("Whisper factory ready " + path);
                 return _factory;
             }
+        }
+
+        static bool _nativeReady;
+
+        /// <summary>
+        /// Point Whisper.net at {exeDir}/runtimes/win-x64 (or the single-file extract dir).
+        /// Must run before the first WhisperFactory is created.
+        /// </summary>
+        public static void EnsureNativePath()
+        {
+            if (_nativeReady && !string.IsNullOrEmpty(RuntimeOptions.LibraryPath)) return;
+            var candidates = new System.Collections.Generic.List<string>();
+            void Add(string p) { if (!string.IsNullOrWhiteSpace(p)) candidates.Add(p); }
+            Add(AppContext.BaseDirectory);
+            try { Add(Path.GetDirectoryName(Environment.ProcessPath)); } catch { }
+            try
+            {
+                var args = Environment.GetCommandLineArgs();
+                if (args != null && args.Length > 0) Add(Path.GetDirectoryName(args[0]));
+            }
+            catch { }
+            try
+            {
+                var nativeSearch = AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES") as string;
+                if (!string.IsNullOrEmpty(nativeSearch))
+                {
+                    foreach (var d in nativeSearch.Split(new[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
+                        Add(d);
+                }
+            }
+            catch { }
+            try
+            {
+                var tmp = Path.Combine(Path.GetTempPath(), ".net", AppIdentity.Name);
+                if (Directory.Exists(tmp))
+                    foreach (var d in Directory.GetDirectories(tmp)) Add(d);
+            }
+            catch { }
+            Add(EmbeddedRuntime.Dir);
+
+            var root = WhisperNativeLayout.ResolveSearchRoot(candidates);
+            if (root == null)
+            {
+                string searched = string.Join("; ", candidates);
+                Logger.Error("Whisper.Native", "whisper.dll not found. Searched: " + searched);
+                throw new FileNotFoundException(L.T("找不到 Whisper 原生库（whisper.dll）。请重新安装 BestSnap，确保安装目录含 runtimes\\win-x64。") + " " + searched);
+            }
+            string probe = WhisperNativeLayout.LibraryPathProbe(root);
+            RuntimeOptions.LibraryPath = probe;
+            Logger.Info("Whisper native LibraryPath=" + probe + " searchRoot=" + root);
+            _nativeReady = true;
         }
 
         static async Task<short[]> LoadMono16kAsync(string media, IProgress<double> progress, CancellationToken ct)

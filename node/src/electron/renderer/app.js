@@ -840,12 +840,13 @@ async function audioView() {
   app.className = "page";
   const folder = (s.audioRecording && s.audioRecording.saveFolder) || "";
   const liveStart = q.get("live") === "1";
-  app.innerHTML = `<h1>音频录制</h1>
-    <div class="grid">
-      <label>来源</label><select id="src"><option value="Microphone">麦克风</option><option value="System">系统声音</option><option value="Mix">麦克风 + 系统声音</option></select>
+  app.innerHTML = `<h1>${liveStart ? "仅转写（不保存音频）" : "音频录制"}</h1>
+    <div class="grid" style="border:2px solid #7c3aed;border-radius:8px;padding:10px;background:#f5f3ff">
+      <label>音频来源</label><select id="src"><option value="Microphone">麦克风</option><option value="System">系统声音</option><option value="Mix">麦克风 + 系统声音</option></select>
       <label>格式</label><select id="fmt"><option>Wav</option><option>Mp3</option></select>
       <label>保存文件夹</label><input id="dir" value="${folder}" />
     </div>
+    <p style="color:#5b21b6">${liveStart ? "仅转写默认使用「麦克风 + 系统声音」。耳机环回往往几乎没有语音，可改麦克风或混合。" : ""}</p>
     <p><label><input type="checkbox" id="live" ${liveStart ? "checked" : ""}/> 仅转写（不保存音频）</label></p>
     <p style="color:#b45309">仅转写：音频不会保存，只保留在内存中的短片段并在转写后立即丢弃。</p>
     <p>
@@ -855,7 +856,10 @@ async function audioView() {
       <button id="stop">停止</button>
       <span id="st"></span>
     </p>`;
-  document.getElementById("src").value = (s.audioRecording && s.audioRecording.source) || "Microphone";
+  const liveSrc = (s.audioRecording && s.audioRecording.liveSource) || (liveStart ? "Mix" : null);
+  document.getElementById("src").value = liveStart
+    ? (liveSrc || "Mix")
+    : ((s.audioRecording && s.audioRecording.source) || "Microphone");
   document.getElementById("fmt").value = (s.audioRecording && s.audioRecording.format) || "Wav";
   let rec = false;
   document.getElementById("start").onclick = async () => {
@@ -863,7 +867,8 @@ async function audioView() {
     const fmt = document.getElementById("fmt").value;
     const dir = document.getElementById("dir").value;
     const live = document.getElementById("live").checked;
-    await sf.invoke("settings:save", { ...s, audioRecording: { ...(s.audioRecording||{}), source: src, format: fmt, saveFolder: dir } });
+    const prev = s.audioRecording || {};
+    await sf.invoke("settings:save", { ...s, audioRecording: { ...prev, source: live ? (prev.source || "Microphone") : src, liveSource: live ? src : prev.liveSource, format: fmt, saveFolder: dir } });
     if (live) {
       rec = true;
       document.getElementById("st").textContent = "仅转写中（不保存音频）";

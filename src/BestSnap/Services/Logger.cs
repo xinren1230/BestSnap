@@ -11,6 +11,7 @@ namespace BestSnap.Services
 
         public static void Info(string msg) => Write("INFO", msg);
         public static void Error(string where, Exception ex) => Write("ERROR", where + ": " + ex);
+        public static void Error(string where, string msg) => Write("ERROR", where + ": " + (msg ?? ""));
 
         private static void Write(string level, string msg)
         {

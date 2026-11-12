@@ -570,6 +570,13 @@
   "正在摘要 {0}/{1}…": "Summarizing {0}/{1}…",
   "正在合并摘要…": "Merging summaries…",
   "转写需要 16 kHz 单声道 WAV。请安装 ffmpeg 并加入 PATH，以便从 MP4/MP3 提取音频。": "Transcription needs 16 kHz mono WAV. Install ffmpeg and add it to PATH to extract audio from MP4/MP3.",
-  "未能从录音提取音频。": "Could not extract audio from the recording."
+  "未能从录音提取音频。": "Could not extract audio from the recording.",
+  "正在加载模型…": "Loading model…",
+  "正在聆听…（尚未检测到语音）": "Listening… (no speech detected yet)",
+  "正在转写…": "Transcribing…",
+  "连续多段被判定为静音。若没有字幕，请将来源改为麦克风或「麦克风 + 系统声音」。": "Several chunks were silent. If you see no captions, switch the source to Mic or Mix (mic + system).",
+  "音频来源": "Audio source",
+  "仅转写默认使用「麦克风 + 系统声音」。耳机环回往往几乎没有语音，可改麦克风或混合。": "Transcribe-only defaults to Mix (mic + system). Headset loopback is often too quiet — switch to Mic or Mix if captions stay empty.",
+  "找不到 Whisper 原生库（whisper.dll）。请重新安装 BestSnap，确保安装目录含 runtimes\\win-x64。": "Whisper native library (whisper.dll) was not found. Reinstall BestSnap and keep runtimes\\win-x64 next to the exe."
  }
 }

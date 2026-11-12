@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -36,14 +35,23 @@ namespace BestSnap.Services
         long _elapsedSamples;
         long _nextFire;
         double _committed;
+        double _noiseFloor;
         int _chunkIndex;
+        int _processed;
+        int _skipped;
+        int _silentStreak;
+        bool _reportedFail;
         string _modelId = WhisperModels.DefaultId;
 
         public bool IsRunning { get; private set; }
         public bool IsPaused { get; private set; }
         public bool HasStarted { get; private set; }
+        public bool UsingMic => _useMic;
+        public bool UsingSystem => _useSys;
         public float MicLevel { get; private set; }
         public float SystemLevel { get; private set; }
+        public int ChunksProcessed => _processed;
+        public int ChunksSkipped => _skipped;
         public IReadOnlyList<TranscriptCue> Cues
         {
             get { lock (_cueLock) return _cues.ToArray(); }
@@ -56,7 +64,10 @@ namespace BestSnap.Services
         public event Action StatusChanged;
         public string Status { get; private set; }
 
-        public void Start(AudioRecordingSettings opts, string modelId)
+        public void Start(AudioRecordingSettings opts, string modelId) =>
+            StartAsync(opts, modelId).GetAwaiter().GetResult();
+
+        public async Task StartAsync(AudioRecordingSettings opts, string modelId)
         {
             if (IsRunning) return;
             opts = AudioRecordingSettings.Normalize(opts, null);
@@ -74,13 +85,31 @@ namespace BestSnap.Services
             _elapsedSamples = 0;
             _committed = 0;
             _chunkIndex = 0;
-            _nextFire = (long)(LiveChunkMath.WindowSeconds * AudioPcm.WhisperRate);
+            _processed = 0;
+            _skipped = 0;
+            _silentStreak = 0;
+            _reportedFail = false;
+            _noiseFloor = 0;
+            _nextFire = (long)Math.Round(LiveChunkMath.FireAt(0) * AudioPcm.WhisperRate);
             MicLevel = SystemLevel = 0;
             _paused = false;
             IsPaused = false;
             HasStarted = false;
             _cts = new CancellationTokenSource();
-            SetStatus(L.T("正在准备本地转写模型…"));
+            SetStatus(L.T("正在加载模型…"));
+            Logger.Info($"Live start source={opts.Source} mic={_useMic} sys={_useSys} model={_modelId}");
+
+            try
+            {
+                await WhisperTranscriber.WarmupAsync(_modelId, null, _cts.Token).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("LiveWarmup", ex);
+                SetStatus(L.T("转写失败：\n") + ex.Message);
+                RaiseFailed(ex.Message);
+                throw;
+            }
 
             if (_useMic)
             {
@@ -106,21 +135,25 @@ namespace BestSnap.Services
                 _mic?.StartRecording();
                 _loop?.StartRecording();
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Error("StartRecording", ex);
                 StopInternal(failed: true);
+                SetStatus(L.T("转写失败：\n") + ex.Message);
+                RaiseFailed(ex.Message);
                 throw;
             }
             IsRunning = true;
             HasStarted = true;
-            SetStatus(L.T("仅转写中（不保存音频）"));
+            SetStatus(L.T("正在聆听…（尚未检测到语音）"));
+            Logger.Info("Live capture started");
             Raise(Started);
         }
 
         void Enqueue(ConcurrentQueue<short[]> q, WaveFormat fmt, byte[] buf, int bytes, bool isMic)
         {
             if (buf == null || bytes <= 0 || !_run) return;
-            bool ieee = fmt.Encoding == WaveFormatEncoding.IeeeFloat;
+            bool ieee = AudioRecorderService.IsIeeeFloat(fmt);
             var samples = AudioPcm.ToMono16k(buf, bytes, fmt.SampleRate, fmt.Channels, fmt.BitsPerSample, ieee);
             if (samples.Length == 0) return;
             q.Enqueue(samples);
@@ -132,7 +165,6 @@ namespace BestSnap.Services
         {
             const int chunk = AudioPcm.WhisperRate / 50; // 20 ms mono
             int maxRing = (int)(LiveChunkMath.WindowSeconds * AudioPcm.WhisperRate) + AudioPcm.WhisperRate;
-            long hop = (long)(LiveChunkMath.HopSeconds * AudioPcm.WhisperRate);
             try
             {
                 while (_run)
@@ -155,11 +187,15 @@ namespace BestSnap.Services
                     _elapsedSamples += mixed.Length;
                     if (_elapsedSamples >= _nextFire)
                     {
-                        var snap = _ring.ToArray();
-                        double absStart = Math.Max(0, _elapsedSamples / (double)AudioPcm.WhisperRate - snap.Length / (double)AudioPcm.WhisperRate);
+                        int want = (int)Math.Round(LiveChunkMath.WindowForIndex(_chunkIndex) * AudioPcm.WhisperRate);
+                        if (want < AudioPcm.WhisperRate / 4) want = AudioPcm.WhisperRate / 4;
+                        int take = Math.Min(want, _ring.Count);
+                        var snap = new short[take];
+                        _ring.CopyTo(_ring.Count - take, snap, 0, take);
+                        double absStart = LiveChunkMath.ChunkAbsStart(_chunkIndex);
                         _jobs.Enqueue((snap, absStart));
                         _chunkIndex++;
-                        _nextFire += hop;
+                        _nextFire = (long)Math.Round(LiveChunkMath.FireAt(_chunkIndex) * AudioPcm.WhisperRate);
                     }
                 }
             }
@@ -170,9 +206,6 @@ namespace BestSnap.Services
         {
             try
             {
-                SetStatus(L.T("正在准备本地转写模型…"));
-                await WhisperTranscriber.EnsureModelAsync(_modelId, null, ct).ConfigureAwait(false);
-                SetStatus(L.T("仅转写中（不保存音频）"));
                 while (!ct.IsCancellationRequested)
                 {
                     if (!_jobs.TryDequeue(out var job))
@@ -187,6 +220,7 @@ namespace BestSnap.Services
             catch (Exception ex)
             {
                 Logger.Error("LiveWhisper", ex);
+                SetStatus(L.T("转写失败：\n") + ex.Message);
                 RaiseFailed(ex.Message);
             }
         }
@@ -194,8 +228,28 @@ namespace BestSnap.Services
         async Task TranscribeChunk(short[] pcm, double absStart, CancellationToken ct)
         {
             if (pcm == null || pcm.Length == 0) return;
-            if (!AudioPcm.HasVoice(pcm, 0.010))
+            double rms = AudioPcm.Rms(pcm);
+            double thresh = AudioPcm.VoiceGate.Threshold(_noiseFloor);
+            bool voiced = rms >= thresh;
+            _noiseFloor = AudioPcm.VoiceGate.UpdateFloor(_noiseFloor, rms, voiced);
+            if (!voiced)
+            {
+                _skipped++;
+                _silentStreak++;
+                Logger.Info($"Live chunk skipped silent skipped={_skipped} processed={_processed} rms={rms:F5} thresh={thresh:F5} floor={_noiseFloor:F5} samples={pcm.Length}");
+                if (_cues.Count == 0)
+                {
+                    string listen = L.T("正在聆听…（尚未检测到语音）");
+                    if (_silentStreak >= AudioPcm.VoiceGate.SilentHintChunks)
+                        listen += " " + L.T("连续多段被判定为静音。若没有字幕，请将来源改为麦克风或「麦克风 + 系统声音」。");
+                    SetStatus(listen);
+                }
                 return;
+            }
+            _silentStreak = 0;
+            _processed++;
+            Logger.Info($"Live chunk process processed={_processed} skipped={_skipped} rms={rms:F5} thresh={thresh:F5} samples={pcm.Length} abs={absStart:F2}");
+            SetStatus(L.T("正在转写…"));
             List<TranscriptCue> rel;
             try
             {
@@ -205,6 +259,12 @@ namespace BestSnap.Services
             catch (Exception ex)
             {
                 Logger.Error("LiveChunk", ex);
+                SetStatus(L.T("转写失败：\n") + ex.Message);
+                if (!_reportedFail)
+                {
+                    _reportedFail = true;
+                    RaiseFailed(ex.Message);
+                }
                 return;
             }
             List<TranscriptCue> added;
@@ -217,6 +277,9 @@ namespace BestSnap.Services
                 if (_cues.Count > 0) caption = _cues[_cues.Count - 1].Text;
             }
             if (added.Count > 0) Raise(() => Caption?.Invoke(caption));
+            if (IsPaused) SetStatus(L.T("已暂停（不保存音频）"));
+            else if (_cues.Count == 0) SetStatus(L.T("正在聆听…（尚未检测到语音）"));
+            else SetStatus(L.T("仅转写中（不保存音频）"));
         }
 
         static short[] Scale(short[] a, double vol)
@@ -252,7 +315,14 @@ namespace BestSnap.Services
         static void Drain(ConcurrentQueue<short[]> q) { while (q.TryDequeue(out _)) { } }
 
         public void Pause() { if (IsRunning && !IsPaused) { _paused = true; IsPaused = true; SetStatus(L.T("已暂停（不保存音频）")); } }
-        public void Resume() { if (IsRunning && IsPaused) { _paused = false; IsPaused = false; SetStatus(L.T("仅转写中（不保存音频）")); } }
+        public void Resume()
+        {
+            if (IsRunning && IsPaused)
+            {
+                _paused = false; IsPaused = false;
+                SetStatus(_cues.Count == 0 ? L.T("正在聆听…（尚未检测到语音）") : L.T("仅转写中（不保存音频）"));
+            }
+        }
 
         public void Stop()
         {
@@ -279,7 +349,7 @@ namespace BestSnap.Services
             if (!failed && _ring.Count >= AudioPcm.WhisperRate / 2)
             {
                 tail = _ring.ToArray();
-                tailStart = Math.Max(0, _elapsedSamples / (double)AudioPcm.WhisperRate - tail.Length / (double)AudioPcm.WhisperRate);
+                tailStart = LiveChunkMath.ChunkAbsStart(Math.Max(0, _chunkIndex));
             }
             _ring.Clear();
             try { _cts?.Cancel(); } catch { }
@@ -292,6 +362,7 @@ namespace BestSnap.Services
                 catch (Exception ex) { Logger.Error("LiveTail", ex); }
             }
             IsRunning = false; IsPaused = false;
+            Logger.Info($"Live stop processed={_processed} skipped={_skipped} failed={failed}");
             SetStatus(failed ? L.T("转写失败") : L.T("转写已停止（未保存音频）"));
             if (failed) return;
             Raise(Stopped);

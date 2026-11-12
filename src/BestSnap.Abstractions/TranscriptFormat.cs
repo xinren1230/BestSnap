@@ -107,15 +107,26 @@ namespace BestSnap.Plugins
     /// </summary>
     public static class LiveChunkMath
     {
+        public const double FirstWindowSeconds = 3.5;
         public const double WindowSeconds = 8;
         public const double OverlapSeconds = 1.5;
         public static double HopSeconds => WindowSeconds - OverlapSeconds;
 
-        public static double ChunkAbsStart(int index, double window = WindowSeconds, double overlap = OverlapSeconds)
+        public static double WindowForIndex(int index, double firstWindow = FirstWindowSeconds, double window = WindowSeconds) =>
+            index <= 0 ? Math.Max(0.4, firstWindow) : Math.Max(0.4, window);
+
+        public static double FireAt(int index, double firstWindow = FirstWindowSeconds, double window = WindowSeconds, double overlap = OverlapSeconds)
+        {
+            double first = Math.Max(0.4, firstWindow);
+            if (index <= 0) return first;
+            double hop = Math.Max(0.1, window - overlap);
+            return first + index * hop;
+        }
+
+        public static double ChunkAbsStart(int index, double window = WindowSeconds, double overlap = OverlapSeconds, double firstWindow = FirstWindowSeconds)
         {
             if (index <= 0) return 0;
-            double hop = Math.Max(0.1, window - overlap);
-            return index * hop;
+            return Math.Max(0, FireAt(index, firstWindow, window, overlap) - WindowForIndex(index, firstWindow, window));
         }
 
         public static List<TranscriptCue> Stitch(IReadOnlyList<TranscriptCue> incomingRelative, double absStart, double committedThrough)

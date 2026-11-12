@@ -71,6 +71,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Single-file self-contained exe (OCR plugin, OnnxRuntime, ScreenRecorderLib, PP-OCRv4 models).
 Source: "{#PayloadDir}\BestSnap.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Whisper.net natives must sit next to the exe. The loader looks in {app}\runtimes\win-x64\,
+; not the .NET single-file extract directory under %TEMP%\.net.
+Source: "{#PayloadDir}\runtimes\win-x64\*"; DestDir: "{app}\runtimes\win-x64"; Flags: ignoreversion
 Source: "{#PayloadDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 ; THIRD-PARTY-NOTICES.txt (PaddleOCR Apache-2.0, pix2text-mfr MIT, ONNX Runtime MIT, …)

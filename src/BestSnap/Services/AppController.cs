@@ -393,19 +393,27 @@ namespace BestSnap.Services
             ShowAudioRecorder(liveOnly: true);
         }
 
-        public void StartLiveTranscribe(AudioRecordingSettings opts)
+        public void StartLiveTranscribe(AudioRecordingSettings opts, Window owner = null)
         {
             if (_live.IsRunning) { _liveWin?.Activate(); return; }
             if (_recorder.IsRecording || _audio.IsRecording)
                 throw new InvalidOperationException(L.T("请先停止当前录制。"));
-            _liveWin = new LiveCaptionWindow(_live, _settings);
+            Logger.Info("StartLiveTranscribe");
+            _liveWin = new LiveCaptionWindow(_live, _settings, owner ?? _toolbar);
             _liveWin.Closed += (o, e) => _liveWin = null;
             _liveWin.Show();
-            try { _live.Start(opts, S.WhisperModel); }
-            catch
+            _ = StartLiveCapture(opts);
+        }
+
+        async System.Threading.Tasks.Task StartLiveCapture(AudioRecordingSettings opts)
+        {
+            try
             {
-                try { _liveWin.Close(); } catch { }
-                throw;
+                await _live.StartAsync(opts, S.WhisperModel);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("StartLiveTranscribe", ex);
             }
         }
 
@@ -453,6 +461,7 @@ namespace BestSnap.Services
             }
             catch (Exception ex)
             {
+                Logger.Error("BeginRecording", ex);
                 MessageBox.Show(L.T("无法开始录屏：\n") + ex.Message, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }

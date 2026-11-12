@@ -65,6 +65,8 @@
       <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'$(EmbedRuntimeDir)'!='' and ('%(Filename)'=='ScreenRecorderLib' or '%(Filename)'=='Ijwhost')" />
       <!-- plain mode: mixed-mode assembly must stay beside the exe -->
       <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'$(EmbedRuntimeDir)'=='' and ('%(Filename)'=='ScreenRecorderLib' or '%(Filename)'=='Ijwhost')" ExcludeFromSingleFile="true" />
+      <!-- Whisper.cpp natives: Whisper.net looks in {exeDir}/runtimes/win-x64/, not the single-file extract dir. -->
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)'=='whisper.dll' or '%(Filename)'=='ggml-whisper' or '%(Filename)'=='ggml-base-whisper' or '%(Filename)'=='ggml-cpu-whisper'" ExcludeFromSingleFile="true" />
     </ItemGroup>
   </Target>
 </Project>

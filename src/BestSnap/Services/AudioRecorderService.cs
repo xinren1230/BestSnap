@@ -119,14 +119,23 @@ namespace BestSnap.Services
                 _mic?.StartRecording();
                 _loop?.StartRecording();
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Error("StartRecording", ex);
                 StopInternal(failed: true);
                 throw;
             }
             IsRecording = true;
             HasStarted = true;
             Raise(Started);
+        }
+
+        internal static bool IsIeeeFloat(WaveFormat fmt)
+        {
+            if (fmt == null) return false;
+            Guid sub = default;
+            if (fmt is WaveFormatExtensible ext) sub = ext.SubFormat;
+            return AudioPcm.IsIeeeFloatWave((int)fmt.Encoding, sub);
         }
 
         internal static MMDevice FindDevice(string id, DataFlow flow)
@@ -148,7 +157,7 @@ namespace BestSnap.Services
         void Enqueue(ConcurrentQueue<short[]> q, WaveFormat fmt, byte[] buf, int bytes, bool isMic)
         {
             if (buf == null || bytes <= 0 || !_run) return;
-            bool ieee = fmt.Encoding == WaveFormatEncoding.IeeeFloat;
+            bool ieee = IsIeeeFloat(fmt);
             var samples = AudioPcm.ToStereo16(buf, bytes, fmt.SampleRate, fmt.Channels, fmt.BitsPerSample, ieee);
             if (samples.Length == 0) return;
             q.Enqueue(samples);

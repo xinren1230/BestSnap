@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { srtTimestamp, toSrt, toTxt } from "../src/core/transcript.js";
-import { chunkAbsStart, extendCommitted, HOP_SECONDS, stitch } from "../src/core/live-chunk.js";
+import { chunkAbsStart, extendCommitted, FIRST_WINDOW_SECONDS, fireAt, HOP_SECONDS, stitch, WINDOW_SECONDS, windowForIndex } from "../src/core/live-chunk.js";
 
 describe("transcript + live stitch", () => {
   it("formats SRT timestamps", () => {
@@ -27,10 +27,15 @@ describe("transcript + live stitch", () => {
     assert.ok(t.startsWith("[00:00:05.000] hi"));
   });
 
-  it("chunk abs start uses hop", () => {
+  it("chunk abs start uses first window then hop", () => {
     assert.equal(chunkAbsStart(0), 0);
-    assert.equal(chunkAbsStart(1), HOP_SECONDS);
-    assert.equal(chunkAbsStart(2), 2 * HOP_SECONDS);
+    assert.equal(fireAt(0), FIRST_WINDOW_SECONDS);
+    assert.equal(fireAt(1), FIRST_WINDOW_SECONDS + HOP_SECONDS);
+    const a1 = chunkAbsStart(1);
+    assert.equal(a1, fireAt(1) - WINDOW_SECONDS);
+    assert.ok(a1 > 0 && a1 < FIRST_WINDOW_SECONDS);
+    assert.equal(windowForIndex(0), FIRST_WINDOW_SECONDS);
+    assert.equal(windowForIndex(1), WINDOW_SECONDS);
   });
 
   it("stitch drops overlap and clips straddle", () => {

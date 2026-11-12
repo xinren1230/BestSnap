@@ -117,8 +117,9 @@ namespace BestSnap.Views
             catch (Exception ex)
             {
                 Logger.Error("Transcribe", ex);
-                MessageBox.Show(Window.GetWindow(this), L.T("转写失败：\n") + ex.Message, AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Error);
-                _status.Text = L.T("转写失败。");
+                string err = L.T("转写失败：\n") + ex.Message;
+                _status.Text = err;
+                MessageBox.Show(Window.GetWindow(this), err, AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {

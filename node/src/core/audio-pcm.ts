@@ -33,6 +33,26 @@ export function rms(samples: Int16Array): number {
   return Math.sqrt(acc / samples.length);
 }
 
+export const VOICE_ABSOLUTE_MIN = 0.002;
+export const VOICE_FLOOR_MIN = 0.0004;
+export const VOICE_RELATIVE = 2.5;
+export const VOICE_THRESHOLD_CAP = 0.012;
+export const VOICE_SILENT_HINT_CHUNKS = 4;
+
+export function voiceThreshold(noiseFloor: number): number {
+  if (!Number.isFinite(noiseFloor) || noiseFloor < 0) noiseFloor = 0;
+  if (noiseFloor <= 0) return VOICE_ABSOLUTE_MIN;
+  let t = noiseFloor * VOICE_RELATIVE;
+  if (t < VOICE_FLOOR_MIN) t = VOICE_FLOOR_MIN;
+  if (t > VOICE_THRESHOLD_CAP) t = VOICE_THRESHOLD_CAP;
+  return t;
+}
+
+export function isVoice(rmsValue: number, noiseFloor: number): boolean {
+  if (!Number.isFinite(rmsValue) || rmsValue < 0) rmsValue = 0;
+  return rmsValue >= voiceThreshold(noiseFloor);
+}
+
 export function wavHeader(dataBytes: number, sampleRate = 44100, channels = 2, bits = 16): Buffer {
   const block = channels * (bits / 8);
   const h = Buffer.alloc(44);

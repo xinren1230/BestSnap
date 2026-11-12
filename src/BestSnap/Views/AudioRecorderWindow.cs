@@ -31,6 +31,19 @@ namespace BestSnap.Views
             Text = L.T("仅转写：音频不会保存，只保留在内存中的短片段并在转写后立即丢弃。"),
             FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(180, 83, 9)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0)
         };
+        readonly TextBlock _srcHint = new TextBlock
+        {
+            Text = L.T("仅转写默认使用「麦克风 + 系统声音」。耳机环回往往几乎没有语音，可改麦克风或混合。"),
+            FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(91, 33, 182)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
+        };
+        readonly Border _srcBox = new Border
+        {
+            BorderBrush = new SolidColorBrush(Color.FromRgb(124, 58, 237)),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10),
+            Background = new SolidColorBrush(Color.FromRgb(245, 243, 255)),
+            Margin = new Thickness(0, 0, 0, 8)
+        };
         readonly TextBox _folder = new TextBox { MinWidth = 220 };
         readonly Button _start = new Button { Content = L.T("开始"), Width = 72, Height = 32, Margin = new Thickness(0, 0, 8, 0) };
         readonly Button _pause = new Button { Content = L.T("暂停"), Width = 72, Height = 32, Margin = new Thickness(0, 0, 8, 0) };
@@ -51,9 +64,6 @@ namespace BestSnap.Views
 
             try { _mics.ItemsSource = AudioRecorderService.GetMicrophones().Select(m => Tuple.Create(m.Id, m.Name)).ToList(); } catch { }
             try { _sys.ItemsSource = AudioRecorderService.GetLoopbackDevices().Select(m => Tuple.Create(m.Id, m.Name)).ToList(); } catch { }
-            _rMic.IsChecked = o.Source == AudioRecordSourceKind.Microphone;
-            _rSys.IsChecked = o.Source == AudioRecordSourceKind.System;
-            _rMix.IsChecked = o.Source == AudioRecordSourceKind.Mix;
             Pick(_mics, o.MicrophoneDevice); Pick(_sys, o.SystemDevice);
             _fWav.IsChecked = o.Format != AudioRecordFileFormat.Mp3;
             _fMp3.IsChecked = o.Format == AudioRecordFileFormat.Mp3;
@@ -68,14 +78,18 @@ namespace BestSnap.Views
             var fp = new DockPanel(); DockPanel.SetDock(browse, Dock.Right); fp.Children.Add(browse); fp.Children.Add(_folder);
 
             var g = new StackPanel { Margin = new Thickness(16) };
-            g.Children.Add(new TextBlock { Text = L.T("来源"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
-            g.Children.Add(_rMic); g.Children.Add(_mics);
-            g.Children.Add(new TextBlock { Text = L.T("电平"), FontSize = 11, Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 2) });
-            g.Children.Add(_micBar);
-            g.Children.Add(_rSys); g.Children.Add(_sys);
-            g.Children.Add(new TextBlock { Text = L.T("电平"), FontSize = 11, Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 2) });
-            g.Children.Add(_sysBar);
-            g.Children.Add(_rMix);
+            var srcInner = new StackPanel();
+            srcInner.Children.Add(new TextBlock { Text = L.T("音频来源"), FontWeight = FontWeights.Bold, FontSize = 14, Margin = new Thickness(0, 0, 0, 6) });
+            srcInner.Children.Add(_srcHint);
+            srcInner.Children.Add(_rMic); srcInner.Children.Add(_mics);
+            srcInner.Children.Add(new TextBlock { Text = L.T("电平"), FontSize = 11, Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 2) });
+            srcInner.Children.Add(_micBar);
+            srcInner.Children.Add(_rSys); srcInner.Children.Add(_sys);
+            srcInner.Children.Add(new TextBlock { Text = L.T("电平"), FontSize = 11, Foreground = Brushes.Gray, Margin = new Thickness(0, 4, 0, 2) });
+            srcInner.Children.Add(_sysBar);
+            srcInner.Children.Add(_rMix);
+            _srcBox.Child = srcInner;
+            g.Children.Add(_srcBox);
             g.Children.Add(_liveOnly);
             g.Children.Add(_liveHint);
             g.Children.Add(new TextBlock { Text = L.T("格式"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
@@ -83,9 +97,19 @@ namespace BestSnap.Views
             g.Children.Add(fmt);
             g.Children.Add(new TextBlock { Text = L.T("保存到（点保存时使用）"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
             g.Children.Add(fp);
+            _liveOnly.Checked += (s, e) =>
+            {
+                SetRadios(_svc.Current.AudioRecording?.LiveSource ?? AudioRecordSourceKind.Mix);
+                ApplyLiveUi();
+            };
+            _liveOnly.Unchecked += (s, e) =>
+            {
+                SetRadios(_svc.Current.AudioRecording?.Source ?? AudioRecordSourceKind.Microphone);
+                ApplyLiveUi();
+            };
             _liveOnly.IsChecked = liveOnly;
-            _liveOnly.Checked += (s, e) => ApplyLiveUi();
-            _liveOnly.Unchecked += (s, e) => ApplyLiveUi();
+            if (liveOnly) SetRadios(o.LiveSource ?? AudioRecordSourceKind.Mix);
+            else SetRadios(o.Source);
             ApplyLiveUi();
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 16, 0, 0) };
@@ -152,20 +176,38 @@ namespace BestSnap.Views
 
         void Persist()
         {
-            _svc.Current.AudioRecording = ReadOpts();
+            var o = ReadOpts();
+            var cur = AudioRecordingSettings.Normalize(_svc.Current.AudioRecording, _svc.Current.SaveFolder);
+            if (_liveOnly.IsChecked == true) cur.LiveSource = o.Source;
+            else cur.Source = o.Source;
+            cur.MicrophoneDevice = o.MicrophoneDevice;
+            cur.SystemDevice = o.SystemDevice;
+            cur.Format = o.Format;
+            cur.SaveFolder = o.SaveFolder;
+            _svc.Current.AudioRecording = cur;
             _svc.Save();
         }
 
         public void SetLiveOnly(bool on)
         {
             _liveOnly.IsChecked = on;
+            if (on) SetRadios(_svc.Current.AudioRecording?.LiveSource ?? AudioRecordSourceKind.Mix);
             ApplyLiveUi();
+        }
+
+        void SetRadios(AudioRecordSourceKind src)
+        {
+            _rMic.IsChecked = src == AudioRecordSourceKind.Microphone;
+            _rSys.IsChecked = src == AudioRecordSourceKind.System;
+            _rMix.IsChecked = src == AudioRecordSourceKind.Mix;
         }
 
         void ApplyLiveUi()
         {
             bool live = _liveOnly.IsChecked == true;
             _liveHint.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            _srcHint.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            _srcBox.BorderThickness = new Thickness(live ? 2 : 1);
             _fWav.IsEnabled = _fMp3.IsEnabled = _folder.IsEnabled = !live && !_rec.IsRecording;
             Title = (live ? L.T("仅转写（不保存音频）") : L.T("音频录制")) + " - " + AppIdentity.Name;
         }
@@ -179,7 +221,7 @@ namespace BestSnap.Views
                 Persist();
                 if (_liveOnly.IsChecked == true)
                 {
-                    App.Controller.StartLiveTranscribe(o);
+                    App.Controller.StartLiveTranscribe(o, this);
                     Close();
                     return;
                 }
@@ -189,6 +231,7 @@ namespace BestSnap.Views
             }
             catch (Exception ex)
             {
+                Logger.Error("AudioRecorderWindow.Begin", ex);
                 MessageBox.Show(this, L.T("无法开始录音：\n") + ex.Message, AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }

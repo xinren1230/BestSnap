@@ -37,11 +37,16 @@ namespace BestSnap.Tests
         }
 
         [Fact]
-        public void LiveChunk_AbsStartUsesHop()
+        public void LiveChunk_FirstWindowThenHop()
         {
             Assert.Equal(0, LiveChunkMath.ChunkAbsStart(0));
-            Assert.Equal(LiveChunkMath.HopSeconds, LiveChunkMath.ChunkAbsStart(1));
-            Assert.Equal(2 * LiveChunkMath.HopSeconds, LiveChunkMath.ChunkAbsStart(2));
+            Assert.Equal(LiveChunkMath.FirstWindowSeconds, LiveChunkMath.FireAt(0));
+            Assert.Equal(LiveChunkMath.FirstWindowSeconds + LiveChunkMath.HopSeconds, LiveChunkMath.FireAt(1));
+            double a1 = LiveChunkMath.ChunkAbsStart(1);
+            Assert.Equal(LiveChunkMath.FireAt(1) - LiveChunkMath.WindowSeconds, a1);
+            Assert.True(a1 > 0 && a1 < LiveChunkMath.FirstWindowSeconds);
+            Assert.Equal(LiveChunkMath.FirstWindowSeconds, LiveChunkMath.WindowForIndex(0));
+            Assert.Equal(LiveChunkMath.WindowSeconds, LiveChunkMath.WindowForIndex(1));
         }
 
         [Fact]

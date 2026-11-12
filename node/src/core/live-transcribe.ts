@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { extendCommitted, HOP_SECONDS, stitch, WINDOW_SECONDS } from "./live-chunk.js";
+import { chunkAbsStart, FIRST_WINDOW_SECONDS, stitch, WINDOW_SECONDS, extendCommitted } from "./live-chunk.js";
 import { localAppDataDir } from "./paths.js";
 import type { TranscriptCue } from "./transcript.js";
 
@@ -38,7 +38,7 @@ export class LiveTranscribe {
     this.dir = fs.mkdtempSync(path.join(os.tmpdir(), "bestsnap-live-"));
     const out = path.join(this.dir, "chunk_%03d.wav");
     const src = opts.system && !opts.mic ? "auto_null.monitor" : "default";
-    this.proc = spawn("ffmpeg", ["-y", "-f", "pulse", "-i", src, "-ac", "1", "-ar", "16000", "-f", "segment", "-segment_time", String(HOP_SECONDS), "-reset_timestamps", "1", out], {
+    this.proc = spawn("ffmpeg", ["-y", "-f", "pulse", "-i", src, "-ac", "1", "-ar", "16000", "-f", "segment", "-segment_time", String(FIRST_WINDOW_SECONDS), "-reset_timestamps", "1", out], {
       stdio: ["ignore", "ignore", "pipe"],
     });
     this.timer = setInterval(() => void this.drain(), 800);
@@ -70,7 +70,7 @@ export class LiveTranscribe {
     for (const n of files.slice(0, Math.max(0, files.length - 1))) {
       const f = path.join(this.dir, n);
       try {
-        await this.transcribeFile(f, this.index * HOP_SECONDS);
+        await this.transcribeFile(f, chunkAbsStart(this.index));
       } finally {
         try { fs.unlinkSync(f); } catch { /* ignore */ }
       }

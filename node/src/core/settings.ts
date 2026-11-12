@@ -18,6 +18,7 @@ export interface HotkeyBinding {
 
 export interface AudioRecordingSettings {
   source: "Microphone" | "System" | "Mix";
+  liveSource?: "Microphone" | "System" | "Mix";
   microphoneDevice: string;
   systemDevice: string;
   format: "Wav" | "Mp3";

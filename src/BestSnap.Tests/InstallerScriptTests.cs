@@ -46,6 +46,8 @@ namespace BestSnap.Tests
             Assert.DoesNotContain("Source: \"{#PayloadDir}\\plugins", text);
             Assert.False(Regex.IsMatch(text, @"Source:.*plugins", RegexOptions.IgnoreCase),
                 "installer must not copy a plugins\\ folder next to the exe");
+            Assert.Contains(@"runtimes\win-x64", text);
+            Assert.Contains("whisper.dll", File.ReadAllText(Path.Combine(Directory.GetParent(Path.GetDirectoryName(IssPath)).FullName, "build.ps1")));
         }
 
         [Fact]
@@ -62,6 +64,9 @@ namespace BestSnap.Tests
             Assert.Contains("JRSoftware.InnoSetup", text);
             Assert.Contains("BestSnap.exe", text);
             Assert.Contains("BestSnap-Setup-", text);
+            Assert.Contains("whisper.dll", text);
+            Assert.Contains(@"runtimes\win-x64", text);
+            Assert.Contains("single-file extract is not enough", text);
             Assert.DoesNotContain(".pfx", text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("password", text, StringComparison.OrdinalIgnoreCase);
         }

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using BestSnap.Plugins;
 using Xunit;
@@ -57,6 +58,27 @@ namespace BestSnap.Tests
             src[0] = 0x00; src[1] = 0x10; src[2] = 0x00; src[3] = 0x10;
             var m = AudioPcm.ToMono16k(src, src.Length, 32000, 2, 16);
             Assert.True(m.Length >= 1);
+        }
+
+        [Fact]
+        public void IsIeeeFloatWave_AcceptsEncoding3AndExtensibleGuid()
+        {
+            Assert.True(AudioPcm.IsIeeeFloatWave(AudioPcm.WaveFormatIeeeFloat));
+            Assert.True(AudioPcm.IsIeeeFloatWave(AudioPcm.WaveFormatExtensible, AudioPcm.IeeeFloatSubType));
+            Assert.False(AudioPcm.IsIeeeFloatWave(AudioPcm.WaveFormatExtensible, AudioPcm.PcmSubType));
+            Assert.False(AudioPcm.IsIeeeFloatWave(1));
+            Assert.False(AudioPcm.IsIeeeFloatWave(AudioPcm.WaveFormatExtensible));
+        }
+
+        [Fact]
+        public void ToMono16k_IeeeFloat32()
+        {
+            var src = BitConverter.GetBytes(0.5f);
+            var m = AudioPcm.ToMono16k(src, src.Length, 16000, 1, 32, ieeeFloat: true);
+            Assert.Single(m);
+            Assert.InRange(m[0], 16000, 17000);
+            var asInt = AudioPcm.ToMono16k(src, src.Length, 16000, 1, 32, ieeeFloat: false);
+            Assert.NotEqual(m[0], asInt[0]);
         }
 
         [Fact]
@@ -149,6 +171,10 @@ namespace BestSnap.Tests
             var empty = AudioRecordingSettings.FromJson("not-json", "/tmp/out");
             Assert.Equal("/tmp/out", empty.SaveFolder);
             Assert.Equal(AudioRecordSourceKind.Microphone, empty.Source);
+            Assert.Null(empty.LiveSource);
+            s.LiveSource = AudioRecordSourceKind.Mix;
+            var liveBack = AudioRecordingSettings.FromJson(s.ToJson(), @"D:\fallback");
+            Assert.Equal(AudioRecordSourceKind.Mix, liveBack.LiveSource);
         }
     }
 }

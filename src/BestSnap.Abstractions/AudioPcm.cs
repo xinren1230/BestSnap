@@ -100,6 +100,22 @@ namespace BestSnap.Plugins
         }
 
         public const int WhisperRate = 16000;
+        public const int WaveFormatIeeeFloat = 3;
+        public const int WaveFormatExtensible = 0xFFFE;
+        public static readonly Guid IeeeFloatSubType = new Guid("00000003-0000-0010-8000-00aa00389b71");
+        public static readonly Guid PcmSubType = new Guid("00000001-0000-0010-8000-00aa00389b71");
+
+        /// <summary>
+        /// WASAPI often reports IEEE float as WAVEFORMATEXTENSIBLE (0xFFFE) with the IEEE float GUID,
+        /// not as encoding 3. Treat both as float so loopback is not decoded as 32-bit PCM.
+        /// </summary>
+        public static bool IsIeeeFloatWave(int encoding, Guid subFormat = default)
+        {
+            if (encoding == WaveFormatIeeeFloat) return true;
+            if (encoding == WaveFormatExtensible && subFormat != Guid.Empty)
+                return subFormat == IeeeFloatSubType;
+            return false;
+        }
 
         /// <summary>Packed PCM → 16 kHz mono 16-bit (Whisper input).</summary>
         public static short[] ToMono16k(byte[] src, int bytesRecorded, int srcRate, int srcChannels, int srcBits, bool ieeeFloat = false)
@@ -122,11 +138,51 @@ namespace BestSnap.Plugins
             return ResampleLinear(mono, 1, srcRate, WhisperRate);
         }
 
-        public static bool HasVoice(short[] samples, double rmsThreshold = 0.012)
+        public static bool HasVoice(short[] samples, double rmsThreshold = 0.002)
         {
             if (samples == null || samples.Length == 0) return false;
             if (double.IsNaN(rmsThreshold) || rmsThreshold < 0) rmsThreshold = 0;
             return Rms(samples) >= rmsThreshold;
+        }
+
+        /// <summary>
+        /// Adaptive VAD for live captions. Quiet headset loopback sits well below a fixed 0.010 RMS;
+        /// compare each chunk to a tracked noise floor, with a low absolute floor so speech still passes.
+        /// </summary>
+        public static class VoiceGate
+        {
+            public const double AbsoluteMin = 0.002;
+            public const double FloorMin = 0.0004;
+            public const double Relative = 2.5;
+            public const double ThresholdCap = 0.012;
+            public const int SilentHintChunks = 4;
+
+            public static double Threshold(double noiseFloor)
+            {
+                if (double.IsNaN(noiseFloor) || noiseFloor < 0) noiseFloor = 0;
+                if (noiseFloor <= 0) return AbsoluteMin;
+                double t = noiseFloor * Relative;
+                if (t < FloorMin) t = FloorMin;
+                if (t > ThresholdCap) t = ThresholdCap;
+                return t;
+            }
+
+            public static bool IsVoice(double rms, double noiseFloor)
+            {
+                if (double.IsNaN(rms) || rms < 0) rms = 0;
+                return rms >= Threshold(noiseFloor);
+            }
+
+            public static bool IsVoice(short[] samples, double noiseFloor) =>
+                IsVoice(Rms(samples), noiseFloor);
+
+            public static double UpdateFloor(double floor, double rms, bool voiced)
+            {
+                if (double.IsNaN(rms) || rms < 0) rms = 0;
+                if (double.IsNaN(floor) || floor <= 0) return Math.Max(FloorMin, rms);
+                if (voiced) return floor * 0.95 + Math.Min(rms, floor) * 0.05;
+                return floor * 0.7 + rms * 0.3;
+            }
         }
 
         static short ReadSample(byte[] src, int offset, int bits, bool ieeeFloat)

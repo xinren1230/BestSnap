@@ -143,11 +143,29 @@ dotnet publish src\BestSnap -c $Configuration -r win-x64 --self-contained $sc `
   -p:EmbedRuntimeDir="$rt" -o publish
 if ($LASTEXITCODE) { throw "final publish failed" }
 
-$extra = Get-ChildItem publish | Where-Object Name -ne "BestSnap.exe"
-$extra | Remove-Item -Recurse -Force
+# Whisper.net loads {exeDir}\runtimes\win-x64\whisper.dll. Those DLLs must stay beside the
+# exe (ExcludeFromSingleFile). Deleting everything except BestSnap.exe left natives only in
+# %TEMP%\.net\BestSnap\<hash>\runtimes\win-x64\, which the loader does not search.
+$whisperNatives = @("whisper.dll", "ggml-whisper.dll", "ggml-base-whisper.dll", "ggml-cpu-whisper.dll")
+Get-ChildItem publish | ForEach-Object {
+    if ($_.Name -eq "BestSnap.exe" -or $_.Name -eq "runtimes") { return }
+    Remove-Item $_.FullName -Recurse -Force
+}
+$rtKeep = Join-Path "publish" "runtimes\win-x64"
+if (Test-Path (Join-Path "publish" "runtimes")) {
+    Get-ChildItem (Join-Path "publish" "runtimes") | Where-Object { $_.Name -ne "win-x64" } | Remove-Item -Recurse -Force
+}
+foreach ($n in $whisperNatives) {
+    $p = Join-Path $rtKeep $n
+    if (-not (Test-Path -LiteralPath $p)) {
+        throw "publish missing Whisper native $n at runtimes\win-x64 (single-file extract is not enough; transcribe will fail)"
+    }
+}
 Remove-Item $stage -Recurse -Force
 $exe = Get-Item publish\BestSnap.exe
 "{0}  {1:N1} MB" -f $exe.FullName, ($exe.Length / 1MB)
+$rtKeepItem = Get-Item $rtKeep
+"Whisper natives  {0}" -f $rtKeepItem.FullName
 
 if (-not $Installer) { return }
 
@@ -158,6 +176,11 @@ $hf = "https://huggingface.co/breezedeus/pix2text-mfr/resolve/main"
 Remove-Item $payload -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $payload | Out-Null
 Copy-Item $exe.FullName (Join-Path $payload "BestSnap.exe")
+$rtDst = Join-Path $payload "runtimes\win-x64"
+New-Item -ItemType Directory -Force $rtDst | Out-Null
+foreach ($n in $whisperNatives) {
+    Copy-Item (Join-Path $rtKeep $n) (Join-Path $rtDst $n) -Force
+}
 Copy-Item (Join-Path $PSScriptRoot "LICENSE") (Join-Path $payload "LICENSE")
 Copy-Item (Join-Path $PSScriptRoot "NOTICE") (Join-Path $payload "NOTICE")
 Copy-Item (Join-Path $PSScriptRoot "installer\licenses") (Join-Path $payload "licenses") -Recurse
