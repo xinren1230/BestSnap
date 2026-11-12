@@ -129,6 +129,7 @@ namespace BestSnap
         private static bool ShouldExclude(Window w) => AppIdentity.GetEnv("SHOW_IN_CAPTURE") != "1" && !IsRecordedOverlay(w) && (
             w is Views.CaptureToolbar || w is Views.RecordingControlBar || w is Views.CountdownWindow ||
             w is Views.MagnifierWindow || w is Views.SelectionOverlay || w is Views.ScrollCaptureWindow || w is Views.RegionBorderWindow || w is Views.QuickActionBar ||
+            w is Views.AudioRecorderWindow || w is Views.RecordingDoneWindow ||
             (Settings?.Current?.ExcludeAppWindowsFromCapture ?? true));
 
         static void OnUiException(object o, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs a)

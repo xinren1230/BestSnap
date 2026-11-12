@@ -6,6 +6,7 @@ using System.Windows;
 using ScreenRecorderLib;
 using BestSnap.Models;
 using BestSnap.Native;
+using BestSnap.Plugins;
 
 namespace BestSnap.Services
 {
@@ -58,14 +59,7 @@ namespace BestSnap.Services
         // ---- recorded overlays (keystrokes, webcam bubble) ----
         private readonly List<Window> _extras = new List<Window>();
 
-        private static Int32Rect RecordArea(RecordingRequest req)
-        {
-            if (req.WindowHandle != IntPtr.Zero) { var r = NativeMethods.GetWindowBounds(req.WindowHandle); return new Int32Rect(r.Left, r.Top, Math.Max(1, r.Width), Math.Max(1, r.Height)); }
-            if (req.Region.HasValue) return req.Region.Value;
-            var scr = System.Windows.Forms.Screen.PrimaryScreen;
-            foreach (var sc in System.Windows.Forms.Screen.AllScreens) if (sc.DeviceName == req.Options.MonitorDevice) scr = sc;
-            var b = scr.Bounds; return new Int32Rect(b.X, b.Y, b.Width, b.Height);
-        }
+        private static Int32Rect RecordArea(RecordingRequest req) => ResolveArea(req);
 
         /// <summary>Webcam via ScreenRecorderLib overlay (MP4, rectangle) — or via the circular bubble window (needs plugin)?</summary>
         private static bool UseBubble(RecordingRequest req)
@@ -97,9 +91,65 @@ namespace BestSnap.Services
         public static List<(string Device, string Name)> GetMicrophones()
         {
             var list = new List<(string, string)>();
-            foreach (var d in Recorder.GetSystemAudioDevices(AudioDeviceSource.InputDevices)) list.Add((d.DeviceName, d.FriendlyName));
+            try { foreach (var d in Recorder.GetSystemAudioDevices(AudioDeviceSource.InputDevices)) list.Add((d.DeviceName, d.FriendlyName)); } catch (Exception ex) { Logger.Error("GetMicrophones", ex); }
             return list;
         }
+
+        public static List<(string Device, string Name)> GetSystemOutputs()
+        {
+            var list = new List<(string, string)>();
+            try { foreach (var d in Recorder.GetSystemAudioDevices(AudioDeviceSource.OutputDevices)) list.Add((d.DeviceName, d.FriendlyName)); } catch (Exception ex) { Logger.Error("GetSystemOutputs", ex); }
+            return list;
+        }
+
+        public static List<MonitorRect> ListMonitors()
+        {
+            var list = new List<MonitorRect>();
+            foreach (var s in System.Windows.Forms.Screen.AllScreens)
+                list.Add(new MonitorRect(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height, s.DeviceName));
+            return list;
+        }
+
+        /// <summary>Physical-pixel rectangle that will actually be captured (after even-size / monitor clip).</summary>
+        public static Int32Rect ResolveArea(RecordingRequest req)
+        {
+            if (req == null) return new Int32Rect(0, 0, 0, 0);
+            return ToInt32(ResolveAreaI(req));
+        }
+
+        static IntRect ResolveAreaI(RecordingRequest req)
+        {
+            var o = req.Options ?? new RecordingSettings();
+            if (req.WindowHandle != IntPtr.Zero)
+            {
+                var r = NativeMethods.GetWindowBounds(req.WindowHandle);
+                return RecordRectMath.EvenSize(new IntRect(r.Left, r.Top, Math.Max(0, r.Width), Math.Max(0, r.Height)));
+            }
+            var monitors = ListMonitors();
+            if (req.Region.HasValue)
+            {
+                var r = req.Region.Value;
+                var ir = new IntRect(r.X, r.Y, r.Width, r.Height);
+                if (RecordRectMath.FitsOneMonitor(ir, monitors, out int idx) && idx >= 0)
+                {
+                    var crop = RecordRectMath.MonitorLocalEvenCrop(ir, monitors[idx]);
+                    var m = monitors[idx];
+                    return new IntRect(m.X + crop.X, m.Y + crop.Y, crop.Width, crop.Height);
+                }
+                var vcrop = RecordRectMath.VirtualLocalEvenCrop(ir, monitors);
+                var vs = RecordRectMath.VirtualScreen(monitors);
+                return new IntRect(vs.X + vcrop.X, vs.Y + vcrop.Y, vcrop.Width, vcrop.Height);
+            }
+            if (o.Source == RecordSourceKind.VirtualScreen)
+                return RecordRectMath.EvenSize(RecordRectMath.VirtualScreen(monitors));
+            var scr = System.Windows.Forms.Screen.PrimaryScreen;
+            foreach (var sc in System.Windows.Forms.Screen.AllScreens)
+                if (sc.DeviceName == o.MonitorDevice) scr = sc;
+            var b = scr.Bounds;
+            return RecordRectMath.EvenSize(new IntRect(b.X, b.Y, b.Width, b.Height));
+        }
+
+        static Int32Rect ToInt32(IntRect r) => new Int32Rect(r.X, r.Y, r.Width, r.Height);
 
         public void Start(RecordingRequest req, string defaultFolder)
         {
@@ -120,14 +170,32 @@ namespace BestSnap.Services
                 sources.Add(new WindowRecordingSource(req.WindowHandle) { IsCursorCaptureEnabled = o.ShowCursor });
             else if (req.Region.HasValue)
             {
-                // Record the monitor that contains the region, cropped via SourceRect (coordinates relative to that monitor).
                 var r = req.Region.Value;
-                var scr = PickScreen(r, out bool spans);
-                if (spans) RegionClipped?.Invoke(scr.DeviceName);
-                sources.Add(new DisplayRecordingSource(scr.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
-                var c = CaptureService.Clip(new Int32Rect(r.X - scr.Bounds.X, r.Y - scr.Bounds.Y, r.Width, r.Height), scr.Bounds.Width, scr.Bounds.Height);
-                int w = c.Width & ~1, h = c.Height & ~1; // H.264 needs even dimensions
-                sourceRect = new ScreenRect(c.X, c.Y, w, h);
+                var ir = new IntRect(r.X, r.Y, r.Width, r.Height);
+                var monitors = ListMonitors();
+                if (RecordRectMath.FitsOneMonitor(ir, monitors, out int idx) && idx >= 0)
+                {
+                    var m = monitors[idx];
+                    sources.Add(new DisplayRecordingSource(m.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
+                    var c = RecordRectMath.MonitorLocalEvenCrop(ir, m);
+                    sourceRect = new ScreenRect(c.X, c.Y, c.Width, c.Height);
+                }
+                else
+                {
+                    foreach (var m in monitors)
+                        sources.Add(new DisplayRecordingSource(m.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
+                    var c = RecordRectMath.VirtualLocalEvenCrop(ir, monitors);
+                    sourceRect = new ScreenRect(c.X, c.Y, c.Width, c.Height);
+                    if (RecordRectMath.PickMonitorIndex(ir, monitors, out bool spans) >= 0 && spans)
+                        RegionClipped?.Invoke("virtual");
+                }
+            }
+            else if (o.Source == RecordSourceKind.VirtualScreen)
+            {
+                foreach (var m in ListMonitors())
+                    sources.Add(new DisplayRecordingSource(m.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
+                if (sources.Count == 0)
+                    sources.Add(new DisplayRecordingSource(DisplayRecordingSource.MainMonitor.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
             }
             else
             {
@@ -141,7 +209,7 @@ namespace BestSnap.Services
                 OutputOptions = new OutputOptions { RecorderMode = RecorderMode.Video },
                 VideoEncoderOptions = new VideoEncoderOptions
                 {
-                    Framerate = o.Fps, Quality = Math.Clamp(o.Quality, 1, 100), IsHardwareEncodingEnabled = true,
+                    Framerate = RecordRectMath.NormalizeFps(o.Fps > 0 ? o.Fps : 30), Quality = Math.Clamp(o.Quality, 1, 100), IsHardwareEncodingEnabled = true,
                     Encoder = new H264VideoEncoder { BitrateMode = H264BitrateControlMode.Quality, EncoderProfile = H264Profile.High }
                 },
                 AudioOptions = new AudioOptions
@@ -149,7 +217,8 @@ namespace BestSnap.Services
                     IsAudioEnabled = o.SystemAudio || o.Microphone,
                     IsOutputDeviceEnabled = o.SystemAudio,
                     IsInputDeviceEnabled = o.Microphone,
-                    AudioInputDevice = o.Microphone ? o.MicrophoneDevice : null,
+                    AudioInputDevice = o.Microphone && !string.IsNullOrWhiteSpace(o.MicrophoneDevice) ? o.MicrophoneDevice : null,
+                    AudioOutputDevice = o.SystemAudio && !string.IsNullOrWhiteSpace(o.SystemAudioDevice) ? o.SystemAudioDevice : null,
                     InputVolume = (float)Math.Clamp(o.MicVolume, 0, 1),
                     OutputVolume = (float)Math.Clamp(o.SystemVolume, 0, 1),
                 },
@@ -215,7 +284,16 @@ namespace BestSnap.Services
                 if (NativeMethods.IsIconic(h)) { NativeMethods.ShowWindow(h, 9); System.Threading.Thread.Sleep(250); }
                 rect = () => { var r = NativeMethods.GetWindowBounds(h); return r.Width > 0 ? new Int32Rect(r.Left, r.Top, r.Width, r.Height) : (Int32Rect?)null; };
             }
-            else if (req.Region.HasValue) { var r = req.Region.Value; rect = () => r; }
+            else if (req.Region.HasValue)
+            {
+                var area = ResolveArea(req);
+                rect = () => area;
+            }
+            else if (o.Source == RecordSourceKind.VirtualScreen)
+            {
+                var vs = CaptureService.VirtualScreen;
+                rect = () => vs;
+            }
             else
             {
                 var scr = System.Windows.Forms.Screen.PrimaryScreen;
@@ -245,17 +323,13 @@ namespace BestSnap.Services
         /// <summary>Monitor with the largest overlap with the region (desktop duplication records one output per source).</summary>
         public static System.Windows.Forms.Screen PickScreen(Int32Rect r, out bool spansMonitors)
         {
-            var rr = new System.Drawing.Rectangle(r.X, r.Y, r.Width, r.Height);
-            System.Windows.Forms.Screen best = System.Windows.Forms.Screen.PrimaryScreen; long bestArea = -1; int hits = 0;
+            var monitors = ListMonitors();
+            int i = RecordRectMath.PickMonitorIndex(new IntRect(r.X, r.Y, r.Width, r.Height), monitors, out spansMonitors);
+            if (i < 0) return System.Windows.Forms.Screen.PrimaryScreen;
+            string name = monitors[i].DeviceName;
             foreach (var sc in System.Windows.Forms.Screen.AllScreens)
-            {
-                var i = System.Drawing.Rectangle.Intersect(sc.Bounds, rr);
-                long a = (long)i.Width * i.Height;
-                if (a > 0) hits++;
-                if (a > bestArea) { bestArea = a; best = sc; }
-            }
-            spansMonitors = hits > 1;
-            return best;
+                if (sc.DeviceName == name) return sc;
+            return System.Windows.Forms.Screen.PrimaryScreen;
         }
 
         public void Pause() { if (IsRecording && !IsPaused) { _rec?.Pause(); _gif?.Pause(); IsPaused = true; } }

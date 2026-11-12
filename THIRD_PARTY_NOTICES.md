@@ -14,6 +14,8 @@ BestSnap 本身使用 Apache-2.0 许可；下列第三方组件保留各自原�
 | ONNX Runtime (Microsoft.ML.OnnxRuntime, onnxruntime-web), © Microsoft Corporation | 模型推理 / inference | MIT | https://github.com/microsoft/onnxruntime |
 | KaTeX | LaTeX 公式渲染 / rendering | MIT | https://github.com/KaTeX/KaTeX |
 | ZXing / @zxing/library (zxing-js) | 二维码、条码 / QR & barcodes | Apache-2.0 | https://github.com/zxing/zxing · https://github.com/zxing-js/library |
+| ScreenRecorderLib | 录屏 / screen recording (Windows) | MIT | https://github.com/sskodje/ScreenRecorderLib |
+| NAudio | 纯音频录制（WASAPI + MP3）/ audio-only recording | MIT | https://github.com/naudio/NAudio |
 | .NET 8 runtime (bundled in the Windows single-file app), © .NET Foundation and Contributors | Windows 运行时 | MIT | https://github.com/dotnet/runtime |
 | Inno Setup (installer engine), © Jordan Russell & Martijn Laan | Windows 安装程序 | Inno Setup License | https://jrsoftware.org/isinfo.php |
 

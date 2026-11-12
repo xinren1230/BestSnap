@@ -14,6 +14,7 @@ namespace BestSnap.Views
     public class RecordingOptionsWindow : Window
     {
         private readonly RadioButton _rMon = new RadioButton { Content = L.T("全屏（选择显示器）"), GroupName = "src" };
+        private readonly RadioButton _rVirt = new RadioButton { Content = L.T("全屏（所有显示器）"), GroupName = "src" };
         private readonly RadioButton _rReg = new RadioButton { Content = L.T("选择区域（开始后拖动框选）"), GroupName = "src" };
         private readonly RadioButton _rWin = new RadioButton { Content = L.T("指定窗口"), GroupName = "src" };
         private readonly ComboBox _monitors = new ComboBox { DisplayMemberPath = "Item2" };
@@ -21,9 +22,10 @@ namespace BestSnap.Views
         private readonly CheckBox _sys = new CheckBox { Content = L.T("录制系统声音") };
         private readonly CheckBox _mic = new CheckBox { Content = L.T("录制麦克风") };
         private readonly ComboBox _mics = new ComboBox { DisplayMemberPath = "Item2" };
+        private readonly ComboBox _sysDev = new ComboBox { DisplayMemberPath = "Item2" };
         private readonly CheckBox _cursor = new CheckBox { Content = L.T("显示鼠标指针") };
         private readonly CheckBox _clicks = new CheckBox { Content = L.T("高亮鼠标点击") };
-        private readonly ComboBox _fps = new ComboBox { ItemsSource = new[] { 15, 24, 30, 60 }, Width = 72 };
+        private readonly ComboBox _fps = new ComboBox { ItemsSource = RecordRectMath.VideoFpsChoices, Width = 72 };
         private readonly ComboBox _quality = new ComboBox { Width = 120, ItemsSource = new[] { L.T("低（文件小）"), L.T("中"), L.T("高"), L.T("极高") } };
         private readonly ComboBox _countdown = new ComboBox { ItemsSource = new[] { 0, 3, 5 }, Width = 72 };
         private readonly TextBox _folder = new TextBox { MinWidth = 220 };
@@ -37,7 +39,7 @@ namespace BestSnap.Views
         private readonly Slider _sysVol = new Slider { Minimum = 0, Maximum = 100, Width = 200, TickFrequency = 10, IsSnapToTickEnabled = false };
         private readonly Slider _micVol = new Slider { Minimum = 0, Maximum = 100, Width = 200, TickFrequency = 10 };
         private readonly CheckBox _border = new CheckBox { Content = L.T("录制区域时显示边框（不会被录进去）") };
-        private readonly CheckBox _trim = new CheckBox { Content = L.T("录制完成后打开剪辑预览（需要 OCR/媒体插件）") };
+        private readonly CheckBox _trim = new CheckBox { Content = L.T("录制完成后自动打开剪辑编辑器") };
         private readonly CheckBox _cam = new CheckBox { Content = L.T("画中画：叠加摄像头") };
         private readonly ComboBox _cams = new ComboBox { DisplayMemberPath = "Item2", MinWidth = 200 };
         private readonly ComboBox _camCorner = new ComboBox { Width = 100 };
@@ -63,15 +65,21 @@ namespace BestSnap.Views
             try { _monitors.ItemsSource = RecorderService.GetMonitors().Select(m => Tuple.Create(m.Device, m.Name)).ToList(); } catch { }
             try { _windows.ItemsSource = RecorderService.GetWindows().Select(w => Tuple.Create(w.Handle, w.Title)).ToList(); } catch { }
             try { _mics.ItemsSource = RecorderService.GetMicrophones().Select(m => Tuple.Create(m.Device, m.Name)).ToList(); } catch { }
+            try { _sysDev.ItemsSource = RecorderService.GetSystemOutputs().Select(m => Tuple.Create(m.Device, m.Name)).ToList(); } catch { }
 
-            _rMon.IsChecked = o.Source == RecordSourceKind.Monitor; _rReg.IsChecked = o.Source == RecordSourceKind.Region; _rWin.IsChecked = o.Source == RecordSourceKind.Window;
+            _rMon.IsChecked = o.Source == RecordSourceKind.Monitor;
+            _rVirt.IsChecked = o.Source == RecordSourceKind.VirtualScreen;
+            _rReg.IsChecked = o.Source == RecordSourceKind.Region;
+            _rWin.IsChecked = o.Source == RecordSourceKind.Window;
             _monitors.SelectedItem = (_monitors.ItemsSource as System.Collections.Generic.List<Tuple<string, string>>)?.FirstOrDefault(m => m.Item1 == o.MonitorDevice);
             if (_monitors.SelectedIndex < 0 && _monitors.Items.Count > 0) _monitors.SelectedIndex = 0;
             if (_windows.Items.Count > 0) _windows.SelectedIndex = 0;
             _mics.SelectedItem = (_mics.ItemsSource as System.Collections.Generic.List<Tuple<string, string>>)?.FirstOrDefault(m => m.Item1 == o.MicrophoneDevice);
             if (_mics.SelectedIndex < 0 && _mics.Items.Count > 0) _mics.SelectedIndex = 0;
+            _sysDev.SelectedItem = (_sysDev.ItemsSource as System.Collections.Generic.List<Tuple<string, string>>)?.FirstOrDefault(m => m.Item1 == o.SystemAudioDevice);
+            if (_sysDev.SelectedIndex < 0 && _sysDev.Items.Count > 0) _sysDev.SelectedIndex = 0;
             _sys.IsChecked = o.SystemAudio; _mic.IsChecked = o.Microphone; _cursor.IsChecked = o.ShowCursor; _clicks.IsChecked = o.HighlightClicks;
-            _fps.SelectedItem = new[] { 15, 24, 30, 60 }.Contains(o.Fps) ? o.Fps : 30;
+            _fps.SelectedItem = RecordRectMath.NormalizeFps(o.Fps);
             int qi = Array.FindIndex(QualityValues, v => v >= o.Quality); _quality.SelectedIndex = qi < 0 ? 3 : qi;
             _countdown.SelectedItem = new[] { 0, 3, 5 }.Contains(o.Countdown) ? o.Countdown : 3;
             _folder.Text = string.IsNullOrWhiteSpace(o.SaveFolder) ? defaultFolder : o.SaveFolder;
@@ -98,6 +106,7 @@ namespace BestSnap.Views
             var video = Page(
                 Section(L.T("录制范围"),
                     Pair(_rMon, _monitors),
+                    _rVirt,
                     _rReg,
                     Pair(_rWin, _windows)),
                 Inline(
@@ -116,7 +125,7 @@ namespace BestSnap.Views
                     Horz(_camCircle, _camRect)));
 
             var audio = Page(
-                _sys, VolRow(_sysVol),
+                _sys, _sysDev, VolRow(_sysVol),
                 Gap(8),
                 _mic, _mics, VolRow(_micVol),
                 Hint(L.T("GIF 动图（无声音）")));
@@ -179,6 +188,7 @@ namespace BestSnap.Views
                 bool gif = _fGif.IsChecked == true;
                 _monitors.IsEnabled = _rMon.IsChecked == true; _windows.IsEnabled = _rWin.IsChecked == true;
                 _sys.IsEnabled = _mic.IsEnabled = !gif; _mics.IsEnabled = !gif && _mic.IsChecked == true;
+                _sysDev.IsEnabled = !gif && _sys.IsChecked == true;
                 _sysVol.IsEnabled = !gif && _sys.IsChecked == true; _micVol.IsEnabled = !gif && _mic.IsChecked == true;
                 _fps.IsEnabled = _quality.IsEnabled = !gif; _gifFps.IsEnabled = _gifWidth.IsEnabled = gif;
                 _clicks.IsEnabled = !gif;
@@ -194,7 +204,7 @@ namespace BestSnap.Views
             BindFmt(_fMp4, _fGif, _fMp4Out, _fGifOut);
             BindFmt(_fMp4Out, _fGifOut, _fMp4, _fGif);
             _sys.Checked += (s, e) => Sync(); _sys.Unchecked += (s, e) => Sync();
-            _rMon.Checked += (s, e) => Sync(); _rReg.Checked += (s, e) => Sync(); _rWin.Checked += (s, e) => Sync();
+            _rMon.Checked += (s, e) => Sync(); _rVirt.Checked += (s, e) => Sync(); _rReg.Checked += (s, e) => Sync(); _rWin.Checked += (s, e) => Sync();
             _mic.Checked += (s, e) => Sync(); _mic.Unchecked += (s, e) => Sync();
             Sync();
         }
@@ -283,10 +293,11 @@ namespace BestSnap.Views
             if (string.IsNullOrWhiteSpace(_folder.Text)) { MessageBox.Show(this, L.T("请选择保存文件夹。"), AppIdentity.Name); return; }
             Result = new RecordingSettings
             {
-                Source = _rReg.IsChecked == true ? RecordSourceKind.Region : _rWin.IsChecked == true ? RecordSourceKind.Window : RecordSourceKind.Monitor,
+                Source = _rReg.IsChecked == true ? RecordSourceKind.Region : _rWin.IsChecked == true ? RecordSourceKind.Window : _rVirt.IsChecked == true ? RecordSourceKind.VirtualScreen : RecordSourceKind.Monitor,
                 MonitorDevice = (_monitors.SelectedItem as Tuple<string, string>)?.Item1,
                 SystemAudio = _sys.IsChecked == true, Microphone = _mic.IsChecked == true,
                 MicrophoneDevice = (_mics.SelectedItem as Tuple<string, string>)?.Item1,
+                SystemAudioDevice = (_sysDev.SelectedItem as Tuple<string, string>)?.Item1,
                 ShowCursor = _cursor.IsChecked == true, HighlightClicks = _clicks.IsChecked == true,
                 Fps = (int)(_fps.SelectedItem ?? 30), Quality = QualityValues[Math.Max(0, _quality.SelectedIndex)],
                 Countdown = (int)(_countdown.SelectedItem ?? 0), SaveFolder = _folder.Text.Trim(),

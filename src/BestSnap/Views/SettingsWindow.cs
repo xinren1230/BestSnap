@@ -18,7 +18,7 @@ namespace BestSnap.Views
         {
             ["FullScreen"] = "全屏截图", ["ActiveWindow"] = "活动窗口", ["WindowObject"] = "窗口/对象", ["Region"] = "矩形区域",
             ["Freehand"] = "手绘区域", ["FixedRegion"] = "固定大小区域", ["Scrolling"] = "滚动窗口", ["RepeatLast"] = "重复上次截图",
-            ["Recorder"] = "开始/停止录屏", ["OcrRegion"] = "识别文字 (OCR)", ["PinRegion"] = "截图并钉到桌面", ["History"] = "截图历史", ["TimedCapture"] = "开始/停止定时截图", ["QrRegion"] = "识别二维码/条码", ["FormulaRegion"] = "公式转LaTeX",
+            ["Recorder"] = "开始/停止录屏", ["AudioRecorder"] = "开始/停止录音", ["OcrRegion"] = "识别文字 (OCR)", ["PinRegion"] = "截图并钉到桌面", ["History"] = "截图历史", ["TimedCapture"] = "开始/停止定时截图", ["QrRegion"] = "识别二维码/条码", ["FormulaRegion"] = "公式转LaTeX",
         };
 
         public SettingsWindow(SettingsService svc, AppController ctl)

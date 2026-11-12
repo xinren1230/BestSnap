@@ -131,6 +131,7 @@ namespace BestSnap.Views
             Item("打开图片到编辑器", _ctl.OpenImage);
             Item("截图历史…", _ctl.ShowHistory, "History");
             Item("定时截图…", _ctl.ToggleTimedCapture, "TimedCapture");
+            Item("录制音频…", _ctl.ShowAudioRecorder, "AudioRecorder");
             Item("拼接长图…", () => new StitchWindow().Show());
             Item("图片对比…", () => new CompareWindow().Show());
             Sep();

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -18,6 +19,7 @@ namespace BestSnap.Services
         private readonly SettingsService _settings;
         private readonly HotkeyService _hotkeys = new HotkeyService();
         private readonly RecorderService _recorder = new RecorderService();
+        private readonly AudioRecorderService _audio = new AudioRecorderService();
         private WinForms.NotifyIcon _tray;
         private CaptureMode? _lastMode;
         private Int32Rect? _lastRect;
@@ -78,6 +80,7 @@ namespace BestSnap.Services
                 if (Enum.TryParse(hk.Action, out CaptureMode mode)) a = () => Capture(mode);
                 else if (hk.Action == "RepeatLast") a = RepeatLast;
                 else if (hk.Action == "Recorder") a = ToggleRecording;
+                else if (hk.Action == "AudioRecorder") a = ShowAudioRecorder;
                 else if (hk.Action == "OcrRegion") a = OcrRegion;
                 else if (hk.Action == "QrRegion") a = QrRegion;
                 else if (hk.Action == "FormulaRegion") a = FormulaRegion;
@@ -273,6 +276,7 @@ namespace BestSnap.Services
             m.Items.Add(_timedItem);
             m.Items.Add(new WinForms.ToolStripSeparator());
             Add(L.T("开始/停止录屏"), ToggleRecording);
+            Add(L.T("录制音频…"), ShowAudioRecorder);
             Add(L.T("屏幕取色器"), ShowColorPicker);
             Add(L.T("屏幕放大镜"), ToggleMagnifier);
             Add(L.T("屏幕标尺"), ShowRuler);
@@ -377,9 +381,9 @@ namespace BestSnap.Services
                     if (!ov.ResultRect.HasValue) return;
                     var r = ov.ResultRect.Value; var vs = CaptureService.VirtualScreen;
                     req.Region = new Int32Rect(r.X + vs.X, r.Y + vs.Y, r.Width, r.Height);
-                    var scr = RecorderService.PickScreen(req.Region.Value, out bool spans);
-                    if (spans && MessageBox.Show(L.T("所选区域跨越了多个显示器。录屏一次只能录制一个显示器，\n将只录制位于 ") + scr.DeviceName + L.T(" 上的部分（重叠面积最大的显示器）。\n\n继续吗？"),
-                            L.T("BestSnap 录屏"), MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
+                    var area = RecorderService.ResolveArea(req);
+                    if (area.Width < 2 || area.Height < 2) { MessageBox.Show(L.T("录制区域无效"), L.T("BestSnap 录屏")); return; }
+                    req.Region = area;
                 }
                 if (opts.Countdown > 0) new CountdownWindow(opts.Countdown, () => BeginRecording(req)).Show();
                 else BeginRecording(req);
@@ -392,8 +396,9 @@ namespace BestSnap.Services
             try
             {
                 _recorder.Start(req, S.SaveFolder);
-                _trimAfter = req.Options.TrimAfterRecording && req.Options.Format == RecordFormat.Mp4 && PluginHost.Trimmer != null;
-                if (req.Region.HasValue && req.Options.ShowRegionBorder) { _border = new RegionBorderWindow(req.Region.Value); _border.Show(); }
+                var area = RecorderService.ResolveArea(req);
+                if (req.Options.ShowRegionBorder && area.Width > 0 && area.Height > 0)
+                { _border = new RegionBorderWindow(area); _border.Show(); }
                 _recBar = new RecordingControlBar(_recorder);
                 _recBar.Show();
             }
@@ -404,7 +409,6 @@ namespace BestSnap.Services
         }
 
         private RegionBorderWindow _border;
-        private bool _trimAfter;
         private void CloseRecBar() { _recBar?.Close(); _recBar = null; _border?.Close(); _border = null; }
 
         private void OnRecordingCompleted(string file)
@@ -412,11 +416,11 @@ namespace BestSnap.Services
             CloseRecBar();
             Notify(L.T("录屏已保存: ") + file);
             if (_exiting) return;
-            if (_trimAfter) { new TrimWindow(file).Show(); return; }
-            if (MessageBox.Show(L.T("录屏已保存：\n") + file + L.T("\n\n是否打开所在文件夹？"), L.T("BestSnap 录屏"), MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
-            {
-                try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + file + "\""); } catch { }
-            }
+            new RecordingDoneWindow(file).Show();
+            if ((_settings.Current.Recording?.TrimAfterRecording ?? false)
+                && File.Exists(file)
+                && TrimRangeMath.CanTrimPath(file))
+                new TrimWindow(file).Show();
         }
 
         private void OnRecordingFailed(string error)
@@ -506,24 +510,37 @@ namespace BestSnap.Services
         }
 
         /// <summary>Exit safely: if recording, stop and wait (max 5 s) for the MP4 to be finalised first.</summary>
+        AudioRecorderWindow _audioWin;
+        public void ShowAudioRecorder()
+        {
+            if (_audioWin != null) { _audioWin.Activate(); return; }
+            _audioWin = new AudioRecorderWindow(_settings, _audio);
+            _audioWin.Closed += (o, e) => _audioWin = null;
+            _audioWin.Show();
+        }
+
         public void RequestExit()
         {
-            if (!_recorder.IsRecording) { Application.Current.Shutdown(); return; }
+            if (!_recorder.IsRecording && !_audio.IsRecording) { Application.Current.Shutdown(); return; }
             _exiting = true;
             Notify(L.T("正在结束录屏并保存，请稍候…"));
             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             void Done() { timer.Stop(); Application.Current.Shutdown(); }
             _recorder.Completed += _ => Done();
             _recorder.Failed += _ => Done();
+            _audio.Completed += _ => Done();
+            _audio.Failed += _ => Done();
             timer.Tick += (o, e) => { Logger.Info("Exit: recorder did not finish within 5 s"); Done(); };
             timer.Start();
-            _recorder.Stop();
+            if (_recorder.IsRecording) _recorder.Stop();
+            if (_audio.IsRecording) _audio.Stop();
         }
 
         public void Dispose()
         {
             _timed.Stop();
             _hotkeys.Dispose();
+            try { _audio.Dispose(); } catch { }
             if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         }
     }

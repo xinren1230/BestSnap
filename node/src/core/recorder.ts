@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { screenSize, type Rect, windowGeometry } from "./capture.js";
+import { listPulseSources } from "./audio-recorder.js";
 
 function x11Display(): string {
   return process.env.DISPLAY || ":0";
@@ -17,6 +18,7 @@ export interface RecordOpts {
   windowId?: string;
   showCursor?: boolean;
   mic?: boolean;
+  systemAudio?: boolean;
   gif?: boolean;
   gifMaxWidth?: number;
 }
@@ -24,6 +26,7 @@ export interface RecordOpts {
 export class Recorder {
   private child: ChildProcess | null = null;
   private stopped = false;
+  private paused = false;
 
   start(opts: RecordOpts): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -60,9 +63,17 @@ export class Recorder {
         "-i",
         `${x11Display()}.0+${r.x},${r.y}`,
       ];
+      let ain = 0;
       if (opts.mic && !gif) {
         args.push("-f", "pulse", "-i", "default");
+        ain++;
       }
+      if (opts.systemAudio && !gif) {
+        const mon = process.env.BESTSNAP_PULSE_MONITOR || listPulseSources().find((s) => s.monitor)?.name || "default";
+        args.push("-f", "pulse", "-i", mon);
+        ain++;
+      }
+      if (ain === 2) args.push("-filter_complex", "amix=inputs=2:duration=longest");
       if (opts.durationSec && opts.durationSec > 0) args.push("-t", String(opts.durationSec));
       if (gif) {
         const maxW = opts.gifMaxWidth ?? 960;
@@ -90,8 +101,29 @@ export class Recorder {
     });
   }
 
+  pause(): void {
+    if (!this.child?.pid || this.paused) return;
+    try {
+      process.kill(this.child.pid, "SIGSTOP");
+      this.paused = true;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  resume(): void {
+    if (!this.child?.pid || !this.paused) return;
+    try {
+      process.kill(this.child.pid, "SIGCONT");
+      this.paused = false;
+    } catch {
+      /* ignore */
+    }
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.paused) this.resume();
     const c = this.child;
     if (!c || c.killed) return;
     c.kill("SIGINT");

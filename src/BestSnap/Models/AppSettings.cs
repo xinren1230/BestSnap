@@ -11,7 +11,7 @@ namespace BestSnap.Models
         public string Gesture { get; set; } // e.g. "Ctrl+Shift+PrintScreen"
     }
 
-    public enum RecordSourceKind { Monitor, Region, Window }
+    public enum RecordSourceKind { Monitor, Region, Window, VirtualScreen }
 
     public class RecordingSettings
     {
@@ -20,6 +20,7 @@ namespace BestSnap.Models
         public bool SystemAudio { get; set; } = true;
         public bool Microphone { get; set; } = false;
         public string MicrophoneDevice { get; set; }
+        public string SystemAudioDevice { get; set; }
         public bool ShowCursor { get; set; } = true;
         public bool HighlightClicks { get; set; } = false;
         public int Fps { get; set; } = 30;
@@ -106,6 +107,7 @@ namespace BestSnap.Models
     public class AppSettings
     {
         public RecordingSettings Recording { get; set; } = new RecordingSettings();
+        public BestSnap.Plugins.AudioRecordingSettings AudioRecording { get; set; } = new BestSnap.Plugins.AudioRecordingSettings();
         public string SaveFolder { get; set; } = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyPictures), AppIdentity.Name);
         public string FileNameTemplate { get; set; } = "BestSnap_{yyyy}-{MM}-{dd}_{HH}{mm}{ss}_{n}";
         public string DefaultFormat { get; set; } = "png";
@@ -147,6 +149,7 @@ namespace BestSnap.Models
             new HotkeyBinding { Action = "Scrolling", Gesture = "Ctrl+Alt+PrintScreen" },
             new HotkeyBinding { Action = "RepeatLast", Gesture = "Ctrl+Shift+R" },
             new HotkeyBinding { Action = "Recorder", Gesture = "Ctrl+Shift+V" },
+            new HotkeyBinding { Action = "AudioRecorder", Gesture = "Ctrl+Shift+A" },
             new HotkeyBinding { Action = "OcrRegion", Gesture = "Ctrl+Shift+O" },
             new HotkeyBinding { Action = "PinRegion", Gesture = "Ctrl+Shift+P" },
             new HotkeyBinding { Action = "History", Gesture = "Ctrl+Shift+H" },

@@ -19,7 +19,8 @@
 - 🔤 **OCR 文字识别**：中英文混排一键提取文字（PP-OCRv4）
 - ∑ **公式转 LaTeX**：截一下公式，直接得到 LaTeX 代码并实时渲染预览
 - 🔳 **二维码 / 条码识别**：框一下，链接马上出来
-- 🎥 **录屏**：一键开始、再点一次停止
+- 🎥 **录屏**：框选区域 / 单显示器 / 全部显示器 / 窗口；控制条暂停；MP4（H.264+AAC）或 GIF；结束后显示完整保存路径，可打开文件夹、打开文件或剪辑（支持从中间剪切）
+- 🎙️ **录音**：麦克风、系统声音（WASAPI 环回）或混合，WAV / MP3，实时电平
 - 🕘 **截图历史**：自动保存，随时找回
 
 ### 下载
@@ -78,7 +79,8 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
 - 🔤 **OCR**: extract mixed Chinese/English text (PP-OCRv4)
 - ∑ **Formula → LaTeX**: snip an equation and get LaTeX code with a live preview
 - 🔳 **QR / barcode** decoding
-- 🎥 **Screen recording** with one click
+- 🎥 **Screen recording**: region, one monitor, all monitors, or a window; pause from the control bar; MP4 (H.264+AAC) or GIF. When a recording finishes, the full save path is shown, with Open folder, Open file, and Trim (including cutting ranges from the middle)
+- 🎙️ **Audio recording**: microphone, system loopback, or mixed; WAV / MP3 with live meters
 - 🕘 **Capture history**, saved automatically
 
 ### Download

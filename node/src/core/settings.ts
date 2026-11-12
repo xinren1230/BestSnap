@@ -16,8 +16,16 @@ export interface HotkeyBinding {
   gesture: string;
 }
 
+export interface AudioRecordingSettings {
+  source: "Microphone" | "System" | "Mix";
+  microphoneDevice: string;
+  systemDevice: string;
+  format: "Wav" | "Mp3";
+  saveFolder: string;
+}
+
 export interface RecordingSettings {
-  source: "Monitor" | "Region" | "Window";
+  source: "Monitor" | "Region" | "Window" | "VirtualScreen";
   systemAudio: boolean;
   microphone: boolean;
   showCursor: boolean;
@@ -57,6 +65,7 @@ export interface AppSettings {
   formula: { engine: FormulaEngine; apiBase: string; apiModel: string; apiKey: string; mathpixAppId: string; mathpixKey: string };
   translate: { provider: TranslateProvider; endpoint: string; region: string; key: string };
   recording: RecordingSettings;
+  audioRecording: AudioRecordingSettings;
   watermark: {
     autoApply: boolean;
     isImage: boolean;
@@ -88,6 +97,7 @@ export const DEFAULT_HOTKEYS: HotkeyBinding[] = [
   { action: "Scrolling", gesture: "Ctrl+Alt+PrintScreen" },
   { action: "RepeatLast", gesture: "Ctrl+Shift+R" },
   { action: "Recorder", gesture: "Ctrl+Shift+V" },
+  { action: "AudioRecorder", gesture: "Ctrl+Shift+A" },
   { action: "OcrRegion", gesture: "Ctrl+Shift+O" },
   { action: "PinRegion", gesture: "Ctrl+Shift+P" },
   { action: "History", gesture: "Ctrl+Shift+H" },
@@ -134,6 +144,13 @@ export function defaults(): AppSettings {
       webcamEnabled: false,
       keystrokeOverlay: false,
     },
+    audioRecording: {
+      source: "Microphone",
+      microphoneDevice: "",
+      systemDevice: "",
+      format: "Wav",
+      saveFolder: path.join(os.homedir(), "Music", "BestSnap"),
+    },
     watermark: {
       autoApply: false,
       isImage: false,
@@ -166,7 +183,7 @@ export function loadSettings(): AppSettings {
   if (!fs.existsSync(p)) return d;
   try {
     const raw = JSON.parse(fs.readFileSync(p, "utf8")) as Partial<AppSettings>;
-    return { ...d, ...raw, formula: { ...d.formula, ...raw.formula }, translate: { ...d.translate, ...raw.translate }, recording: { ...d.recording, ...raw.recording }, watermark: { ...d.watermark, ...raw.watermark }, hotkeys: raw.hotkeys?.length ? raw.hotkeys : d.hotkeys };
+    return { ...d, ...raw, formula: { ...d.formula, ...raw.formula }, translate: { ...d.translate, ...raw.translate }, recording: { ...d.recording, ...raw.recording }, audioRecording: { ...d.audioRecording, ...(raw as AppSettings).audioRecording }, watermark: { ...d.watermark, ...raw.watermark }, hotkeys: raw.hotkeys?.length ? raw.hotkeys : d.hotkeys };
   } catch {
     const bak = p + ".bak";
     if (fs.existsSync(bak)) {
