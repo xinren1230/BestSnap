@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -106,9 +107,9 @@ namespace BestSnap.Views
             else if (!hasMedia)
                 _status.Text = L.T("音频未保存。可复制或导出文本。");
 
-            _transcribe.Click += async (s, e) => await RunTranscribe();
-            _cancel.Click += (s, e) => { try { _cts?.Cancel(); } catch { } };
-            _copy.Click += (s, e) => Copy(TranscriptFormat.ToTxt(_cues));
+            _transcribe.Click += async (s, e) => await RunTranscribe(auto: false);
+            _cancel.Click += (s, e) => Cancel();
+            _copy.Click += (s, e) => Copy(string.IsNullOrEmpty(_box.Text) ? TranscriptFormat.ToTxt(_cues) : _box.Text);
             _txt.Click += (s, e) => Save("TXT|*.txt", TranscriptFormat.ToTxt(_cues), ".txt");
             _srt.Click += (s, e) => Save("SRT|*.srt", TranscriptFormat.ToSrt(_cues), ".srt");
             _summarize.Click += async (s, e) => await RunSummarize();
@@ -123,17 +124,65 @@ namespace BestSnap.Views
             RefreshText();
         }
 
+        public void Cancel()
+        {
+            try { _cts?.Cancel(); } catch { }
+        }
+
+        /// <summary>
+        /// After an audio-only stop: if the setting is on, load an existing sidecar or start local Whisper.
+        /// Does not block the UI (call from Loaded without awaiting in the constructor).
+        /// </summary>
+        public async Task MaybeAutoTranscribeAsync()
+        {
+            string file = _media?.Invoke();
+            if (!TranscriptSidecar.ShouldAutoTranscribe(_svc.Current.AutoTranscribeAudioAfterStop, file))
+                return;
+            if (TryLoadSidecar(file)) return;
+            await RunTranscribe(auto: true).ConfigureAwait(true);
+        }
+
+        bool TryLoadSidecar(string file)
+        {
+            string txt = TranscriptSidecar.PathFor(file);
+            if (string.IsNullOrEmpty(txt) || !File.Exists(txt)) return false;
+            try
+            {
+                string body = File.ReadAllText(txt, Encoding.UTF8);
+                if (string.IsNullOrWhiteSpace(body)) return false;
+                string plain = body.Trim();
+                ReplaceCues(new[] { new TranscriptCue { Start = 0, End = 0, Text = plain } });
+                _box.Text = plain;
+                _status.Text = L.T("已加载转写文本。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("TranscriptSidecar.Load", ex);
+                return false;
+            }
+        }
+
         void RefreshText()
         {
             _box.Text = _cues.Count == 0 ? "" : TranscriptFormat.ToTxt(_cues);
         }
 
-        async Task RunTranscribe()
+        void WriteSidecar()
+        {
+            string file = _media?.Invoke();
+            if (string.IsNullOrWhiteSpace(file) || !File.Exists(file) || _cues.Count == 0) return;
+            try { TranscriptSidecar.WriteCues(file, _cues); }
+            catch (Exception ex) { Logger.Error("TranscriptSidecar.Write", ex); }
+        }
+
+        async Task RunTranscribe(bool auto = false)
         {
             string file = _media?.Invoke();
             if (string.IsNullOrWhiteSpace(file) || !File.Exists(file))
             {
-                MessageBox.Show(Window.GetWindow(this), L.T("没有可转写的音频。"), AppIdentity.Name);
+                if (!auto)
+                    MessageBox.Show(Window.GetWindow(this), L.T("没有可转写的音频。"), AppIdentity.Name);
                 return;
             }
             _cts?.Dispose();
@@ -146,10 +195,18 @@ namespace BestSnap.Views
                 PersistWhisper();
                 var pick = WhisperTranscriber.Resolve(_svc.Current.WhisperModel, live: false);
                 var modelId = pick.ModelId;
-                _status.Text = string.Format(L.T("正在本机转写（{0}，约 {1}）…"), modelId, WhisperModels.SizeLabel(modelId));
+                if (!WhisperTranscriber.ModelReady(modelId))
+                    _status.Text = string.Format(L.T("正在下载 {0}…"), modelId);
+                else
+                    _status.Text = string.Format(L.T("正在本机转写（{0}，约 {1}）…"), modelId, WhisperModels.SizeLabel(modelId));
                 if (!string.IsNullOrEmpty(pick.Reason))
                     _status.Text += "  " + pick.Reason;
-                IProgress<double> prog = new Progress<double>(p => _bar.Value = p);
+                IProgress<double> prog = new Progress<double>(p =>
+                {
+                    _bar.Value = p;
+                    if (!WhisperTranscriber.ModelReady(modelId) && p < 0.15)
+                        _status.Text = string.Format(L.T("正在下载 {0}… {1}%"), modelId, (int)Math.Round(Math.Min(1, p / 0.15) * 100));
+                });
                 var decode = new WhisperDecodeSettings
                 {
                     Language = _svc.Current.WhisperLanguage,
@@ -164,12 +221,14 @@ namespace BestSnap.Views
                     if (added == null || added.Count == 0) return;
                     _cues.AddRange(added);
                     RefreshText();
+                    WriteSidecar();
                     _status.Text = string.Format(L.T("正在本机转写…已输出 {0} 段。"), _cues.Count);
                 });
                 var result = await WhisperTranscriber.TranscribeFileWindowedAsync(file, modelId, null, decode, prog, added => stream.Report(added), _cts.Token);
                 if (_cues.Count == 0 && result?.Cues != null)
                     _cues.AddRange(result.Cues);
                 RefreshText();
+                WriteSidecar();
                 _status.Text = string.Format(L.T("转写完成，共 {0} 段。音频仅在本机处理。"), _cues.Count);
             }
             catch (OperationCanceledException) { _status.Text = L.T("已取消转写。"); }
@@ -193,7 +252,7 @@ namespace BestSnap.Views
             if (_cues.Count == 0)
             {
                 if (!string.IsNullOrWhiteSpace(_media?.Invoke()) && File.Exists(_media()))
-                    await RunTranscribe();
+                    await RunTranscribe(auto: false);
                 if (_cues.Count == 0)
                 {
                     MessageBox.Show(Window.GetWindow(this), L.T("请先转写。"), AppIdentity.Name);

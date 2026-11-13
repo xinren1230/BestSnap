@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { localAppDataDir } from "./paths.js";
+import { deleteTranscript, isTranscriptPath } from "./transcript-sidecar.js";
 
 export const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -68,7 +69,7 @@ export function listReady(dir: string): string[] {
   return fs
     .readdirSync(dir)
     .map((n) => path.join(dir, n))
-    .filter((f) => !f.endsWith(".meta.json") && !f.endsWith(".16k.wav") && isReady(f))
+    .filter((f) => !f.endsWith(".meta.json") && !f.endsWith(".16k.wav") && !isTranscriptPath(f) && isReady(f))
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -103,6 +104,7 @@ export function deletePair(media: string): void {
       /* ignore */
     }
   }
+  deleteTranscript(media);
 }
 
 function writeSidecar(media: string, complete: boolean, utc: Date): void {

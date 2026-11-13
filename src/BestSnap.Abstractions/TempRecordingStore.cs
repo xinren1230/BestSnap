@@ -79,6 +79,7 @@ namespace BestSnap.Plugins
             {
                 if (f.EndsWith(".meta.json", StringComparison.OrdinalIgnoreCase)) continue;
                 if (f.EndsWith(".16k.wav", StringComparison.OrdinalIgnoreCase)) continue;
+                if (TranscriptSidecar.IsTranscriptPath(f)) continue;
                 if (IsReady(f)) list.Add(f);
             }
             list.Sort(StringComparer.OrdinalIgnoreCase);
@@ -117,6 +118,7 @@ namespace BestSnap.Plugins
                 if (File.Exists(wav)) File.Delete(wav);
             }
             catch { }
+            TranscriptSidecar.DeleteFor(media);
         }
 
         static void WriteSidecar(string media, bool complete, DateTime utc)

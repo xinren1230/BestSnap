@@ -29,6 +29,12 @@ namespace BestSnap.Views
                 Text = s.WhisperPrompt ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
                 Height = 64, VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
+            var autoTxt = new CheckBox
+            {
+                Content = L.T("录音后自动转文字"),
+                IsChecked = s.AutoTranscribeAudioAfterStop,
+                VerticalAlignment = VerticalAlignment.Center
+            };
             var dir = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray, FontSize = 11, Text = L.T("模型目录：") + AppPaths.WhisperModels };
             var hint = new TextBlock
             {
@@ -111,6 +117,7 @@ namespace BestSnap.Views
             Row(L.T("Whisper 模型"), model);
             Row("", autoHint);
             Row(L.T("转写语言"), lang);
+            Row("", autoTxt);
             Row(L.T("提示词 / 词汇（可选）"), prompt);
             Row("", dir);
             var actions = new WrapPanel();
@@ -129,6 +136,7 @@ namespace BestSnap.Views
             {
                 s.WhisperModel = WhisperUi.SelectedModel(model);
                 s.WhisperLanguage = WhisperUi.SelectedLanguage(lang);
+                s.AutoTranscribeAudioAfterStop = autoTxt.IsChecked != false;
                 s.WhisperPrompt = string.IsNullOrWhiteSpace(prompt.Text) ? null : prompt.Text.Trim();
                 s.Chat.ApiBase = string.IsNullOrWhiteSpace(apiBase.Text) ? null : apiBase.Text.Trim();
                 s.Chat.ApiModel = string.IsNullOrWhiteSpace(apiModel.Text) ? "gpt-4o-mini" : apiModel.Text.Trim();

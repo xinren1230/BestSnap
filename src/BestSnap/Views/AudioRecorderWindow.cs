@@ -26,6 +26,7 @@ namespace BestSnap.Views
         readonly RadioButton _fWav = new RadioButton { Content = L.T("WAV 无损"), GroupName = "afmt" };
         readonly RadioButton _fMp3 = new RadioButton { Content = L.T("MP3"), GroupName = "afmt" };
         readonly CheckBox _liveOnly = new CheckBox { Content = L.T("仅转写（不保存音频）"), Margin = new Thickness(0, 12, 0, 0) };
+        readonly CheckBox _autoTxt = new CheckBox { Content = L.T("录音后自动转文字"), Margin = new Thickness(0, 8, 0, 0) };
         readonly TextBlock _liveHint = new TextBlock
         {
             Text = L.T("仅转写：音频不会保存，只保留在内存中的短片段并在转写后立即丢弃。"),
@@ -92,6 +93,8 @@ namespace BestSnap.Views
             g.Children.Add(_srcBox);
             g.Children.Add(_liveOnly);
             g.Children.Add(_liveHint);
+            _autoTxt.IsChecked = svc.Current.AutoTranscribeAudioAfterStop;
+            g.Children.Add(_autoTxt);
             g.Children.Add(new TextBlock { Text = L.T("格式"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
             var fmt = new StackPanel { Orientation = Orientation.Horizontal }; fmt.Children.Add(_fWav); _fMp3.Margin = new Thickness(16, 0, 0, 0); fmt.Children.Add(_fMp3);
             g.Children.Add(fmt);
@@ -185,6 +188,7 @@ namespace BestSnap.Views
             cur.Format = o.Format;
             cur.SaveFolder = o.SaveFolder;
             _svc.Current.AudioRecording = cur;
+            _svc.Current.AutoTranscribeAudioAfterStop = _autoTxt.IsChecked != false;
             _svc.Save();
         }
 
@@ -206,6 +210,7 @@ namespace BestSnap.Views
         {
             bool live = _liveOnly.IsChecked == true;
             _liveHint.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            _autoTxt.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
             _srcHint.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
             _srcBox.BorderThickness = new Thickness(live ? 2 : 1);
             _fWav.IsEnabled = _fMp3.IsEnabled = _folder.IsEnabled = !live && !_rec.IsRecording;

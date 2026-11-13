@@ -66,10 +66,12 @@ describe("temp recordings", () => {
       fs.writeFileSync(m, "x");
       fs.writeFileSync(m + ".meta.json", "{}");
       fs.writeFileSync(m + ".16k.wav", "y");
+      fs.writeFileSync(m.replace(/\.mp4$/i, ".txt"), "z");
       deletePair(m);
       assert.equal(fs.existsSync(m), false);
       assert.equal(fs.existsSync(m + ".meta.json"), false);
       assert.equal(fs.existsSync(m + ".16k.wav"), false);
+      assert.equal(fs.existsSync(m.replace(/\.mp4$/i, ".txt")), false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -130,7 +131,16 @@ namespace BestSnap.Views
                     Discard();
                 }
             };
-            Closed += (s, e) => { try { _media.Close(); } catch { } };
+            Loaded += async (s, e) =>
+            {
+                try { await _panel.MaybeAutoTranscribeAsync().ConfigureAwait(true); }
+                catch (Exception ex) { Logger.Error("AutoTranscribe", ex); }
+            };
+            Closed += (s, e) =>
+            {
+                try { _panel?.Cancel(); } catch { }
+                try { _media.Close(); } catch { }
+            };
         }
 
         static bool IsTemp(string path) =>
@@ -151,12 +161,14 @@ namespace BestSnap.Views
             try
             {
                 Directory.CreateDirectory(IOPath.GetDirectoryName(dlg.FileName) ?? ".");
-                File.Copy(_file, dlg.FileName, overwrite: true);
+                string from = _file;
+                File.Copy(from, dlg.FileName, overwrite: true);
+                TranscriptSidecar.CopyWithMedia(from, dlg.FileName);
                 RememberFolder(IOPath.GetDirectoryName(dlg.FileName));
-                if (IsTemp(_file) && !string.Equals(IOPath.GetFullPath(_file), IOPath.GetFullPath(dlg.FileName), StringComparison.OrdinalIgnoreCase))
-                    TempRecordingStore.DeletePair(_file);
                 _file = dlg.FileName;
                 _pathBox.Text = _file;
+                if (IsTemp(from) && !string.Equals(IOPath.GetFullPath(from), IOPath.GetFullPath(dlg.FileName), StringComparison.OrdinalIgnoreCase))
+                    TempRecordingStore.DeletePair(from);
                 _saved = true;
                 _hint.Text = L.T("已保存") + ": " + _file;
                 return true;
@@ -171,6 +183,7 @@ namespace BestSnap.Views
         void Discard()
         {
             _discarded = true;
+            try { _panel?.Cancel(); } catch { }
             try { _media.Close(); _media.Source = null; } catch { }
             if (IsTemp(_file)) TempRecordingStore.DeletePair(_file);
         }

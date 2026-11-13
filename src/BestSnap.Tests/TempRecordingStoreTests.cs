@@ -86,10 +86,12 @@ namespace BestSnap.Tests
                 File.WriteAllText(m, "x");
                 File.WriteAllText(m + ".meta.json", "{}");
                 File.WriteAllText(m + ".16k.wav", "y");
+                File.WriteAllText(Path.ChangeExtension(m, ".txt"), "z");
                 TempRecordingStore.DeletePair(m);
                 Assert.False(File.Exists(m));
                 Assert.False(File.Exists(m + ".meta.json"));
                 Assert.False(File.Exists(m + ".16k.wav"));
+                Assert.False(File.Exists(Path.ChangeExtension(m, ".txt")));
             }
             finally { try { Directory.Delete(dir, true); } catch { } }
         }

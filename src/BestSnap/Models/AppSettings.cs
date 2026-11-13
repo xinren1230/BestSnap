@@ -151,6 +151,8 @@ namespace BestSnap.Models
         public string WhisperLanguage { get; set; } = "auto";
         /// <summary>Optional initial prompt / vocabulary hints for Whisper.</summary>
         public string WhisperPrompt { get; set; }
+        /// <summary>After an audio-only recording stops, start local Whisper and write Rec_xxx.txt. Default on.</summary>
+        public bool AutoTranscribeAudioAfterStop { get; set; } = true;
         /// <summary>User has been told that a configured LLM will send transcript text to the network.</summary>
         public bool SummarizeNetworkConsent { get; set; }
         public WatermarkSettings Watermark { get; set; } = new WatermarkSettings();
