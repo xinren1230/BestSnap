@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BestSnap.Models;
+using BestSnap.Plugins;
 using BestSnap.Services;
 
 namespace BestSnap.ViewModels
@@ -87,7 +88,7 @@ namespace BestSnap.ViewModels
         public string RecordSaveFolder { get; set; }
         public bool WatermarkAutoApply { get; set; }
         public static string[] Formats => new[] { "png", "jpg", "bmp", "gif", "tif", "pdf" };
-        public static int[] FpsChoices => new[] { 15, 24, 30, 60 };
+        public static int[] FpsChoices => RecordRectMath.VideoFpsChoices;
         public static int[] CountdownChoices => new[] { 0, 3, 5 };
         public static int[] GifFpsChoices => new[] { 5, 8, 10, 12, 15, 20 };
         public static int[] GifWidthChoices => new[] { 480, 640, 800, 960, 1280, 0 };
@@ -109,7 +110,7 @@ namespace BestSnap.ViewModels
         };
         public static List<KeyValuePair<RecordSourceKind, string>> RecordSourceNames => new List<KeyValuePair<RecordSourceKind, string>>
         {
-            new(RecordSourceKind.Monitor, L.T("全屏（选择显示器）")), new(RecordSourceKind.Region, L.T("选择区域（开始后拖动框选）")), new(RecordSourceKind.Window, L.T("指定窗口")),
+            new(RecordSourceKind.Monitor, L.T("全屏（选择显示器）")), new(RecordSourceKind.VirtualScreen, L.T("全屏（所有显示器）")), new(RecordSourceKind.Region, L.T("选择区域（开始后拖动框选）")), new(RecordSourceKind.Window, L.T("指定窗口")),
         };
         public static List<KeyValuePair<WebcamCorner, string>> WebcamCornerNames => new List<KeyValuePair<WebcamCorner, string>>
         {

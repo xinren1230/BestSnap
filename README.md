@@ -19,7 +19,9 @@
 - 🔤 **OCR 文字识别**：中英文混排一键提取文字（PP-OCRv4）
 - ∑ **公式转 LaTeX**：截一下公式，直接得到 LaTeX 代码并实时渲染预览
 - 🔳 **二维码 / 条码识别**：框一下，链接马上出来
-- 🎥 **录屏**：一键开始、再点一次停止
+- 🎥 **录屏**：框选区域 / 单显示器 / 全部显示器 / 窗口；控制条暂停；MP4（H.264+AAC）或 GIF。先写入临时文件，完成窗口可预览、剪辑、转写、摘要，再另存
+- 🎙️ **录音**：麦克风、系统声音（WASAPI 环回）或混合，WAV / MP3，实时电平；工具栏「录制」菜单可选屏幕 / 音频 / 仅转写。停止后默认用本机 Whisper 自动转写（可关「录音后自动转文字」），文本显示在完成窗，并写成同名 UTF-8 BOM 的 `.txt`（随临时文件保存/丢弃）
+- 📝 **仅转写（不保存音频）**：滚动 Whisper 字幕 + 带时间戳的转写；默认「自动（推荐）」按显卡/内存选模型，也可手动 tiny～large-v3-turbo（含 q5_0）；语言 Auto 会检测并转写（不是只检测）；实时队列最多积压 1–2 窗，单窗超时则跳过并继续聆听，不会卡在「正在转写…」。长文件按约 30 秒窗流式转写。音频只在内存中，停止后可复制 / 保存 txt、srt 并摘要。字幕窗跟工具栏所在显示器；安装目录需带 `runtimes\win-x64`（及可选 GPU）下的 Whisper 原生库。无界面自检：`BestSnap.exe --transcribe-test file.wav --live-sim --stretch-minutes 10 --out transcript.txt`
 - 🕘 **截图历史**：自动保存，随时找回
 
 ### 下载
@@ -78,7 +80,9 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
 - 🔤 **OCR**: extract mixed Chinese/English text (PP-OCRv4)
 - ∑ **Formula → LaTeX**: snip an equation and get LaTeX code with a live preview
 - 🔳 **QR / barcode** decoding
-- 🎥 **Screen recording** with one click
+- 🎥 **Screen recording**: region, one monitor, all monitors, or a window; pause from the control bar; MP4 (H.264+AAC) or GIF. Stop writes a temp file; the completion window has preview, Trim, Transcribe, Summarize, then Save As
+- 🎙️ **Audio recording**: microphone, system loopback, or mixed; WAV / MP3 with live meters. The toolbar Recording menu offers screen, audio-only, and transcribe-only. Stopping an audio-only take starts on-device Whisper by default (setting **Auto-transcribe after recording**); the text appears in the completion window and is saved as a UTF-8 BOM `.txt` next to the audio, following the temp-then-Save flow
+- 📝 **Transcribe only (no audio saved)**: live Whisper captions and a timestamped transcript; Auto (recommended) picks a model from GPU/RAM, or choose tiny–large-v3-turbo (q5_0), language, and a vocabulary prompt; language Auto detects **and** transcribes; the live queue keeps at most 1–2 pending windows and skips a chunk on timeout so the UI never sticks on “transcribing”; long files stream in ~30 s windows. Audio stays in memory; on stop you can copy / save .txt .srt and summarize. Headless check: `BestSnap.exe --transcribe-test file.wav --live-sim --stretch-minutes 10 --out transcript.txt`
 - 🕘 **Capture history**, saved automatically
 
 ### Download

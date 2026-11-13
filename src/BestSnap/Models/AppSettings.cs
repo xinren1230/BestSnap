@@ -11,7 +11,7 @@ namespace BestSnap.Models
         public string Gesture { get; set; } // e.g. "Ctrl+Shift+PrintScreen"
     }
 
-    public enum RecordSourceKind { Monitor, Region, Window }
+    public enum RecordSourceKind { Monitor, Region, Window, VirtualScreen }
 
     public class RecordingSettings
     {
@@ -20,6 +20,7 @@ namespace BestSnap.Models
         public bool SystemAudio { get; set; } = true;
         public bool Microphone { get; set; } = false;
         public string MicrophoneDevice { get; set; }
+        public string SystemAudioDevice { get; set; }
         public bool ShowCursor { get; set; } = true;
         public bool HighlightClicks { get; set; } = false;
         public int Fps { get; set; } = 30;
@@ -46,6 +47,14 @@ namespace BestSnap.Models
     }
 
     public enum WebcamCorner { BottomRight, BottomLeft, TopRight, TopLeft }
+    /// <summary>Optional OpenAI-compatible chat-completions endpoint for transcript summaries. Empty = offline extractive fallback.</summary>
+    public class ChatSettings
+    {
+        public string ApiBase { get; set; }
+        public string ApiModel { get; set; } = "gpt-4o-mini";
+        public string ApiKeyProtected { get; set; }
+    }
+
     public enum TranslateProvider { None, DeepL, Azure, LibreTranslate }
 
     public class TranslateSettings
@@ -106,6 +115,7 @@ namespace BestSnap.Models
     public class AppSettings
     {
         public RecordingSettings Recording { get; set; } = new RecordingSettings();
+        public BestSnap.Plugins.AudioRecordingSettings AudioRecording { get; set; } = new BestSnap.Plugins.AudioRecordingSettings();
         public string SaveFolder { get; set; } = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyPictures), AppIdentity.Name);
         public string FileNameTemplate { get; set; } = "BestSnap_{yyyy}-{MM}-{dd}_{HH}{mm}{ss}_{n}";
         public string DefaultFormat { get; set; } = "png";
@@ -134,6 +144,17 @@ namespace BestSnap.Models
         public TranslateSettings Translate { get; set; } = new TranslateSettings();
         public string OcrLanguage { get; set; }        // null/"" = auto (zh/ja/ko recognizers if installed + profile languages, best result wins)
         public FormulaSettings Formula { get; set; } = new FormulaSettings();
+        public ChatSettings Chat { get; set; } = new ChatSettings();
+        /// <summary>auto (hardware pick) or a ggml id. Downloaded on first use.</summary>
+        public string WhisperModel { get; set; } = WhisperModels.DefaultId;
+        /// <summary>Whisper language: auto / zh / en / … Remembered across sessions.</summary>
+        public string WhisperLanguage { get; set; } = "auto";
+        /// <summary>Optional initial prompt / vocabulary hints for Whisper.</summary>
+        public string WhisperPrompt { get; set; }
+        /// <summary>After an audio-only recording stops, start local Whisper and write Rec_xxx.txt. Default on.</summary>
+        public bool AutoTranscribeAudioAfterStop { get; set; } = true;
+        /// <summary>User has been told that a configured LLM will send transcript text to the network.</summary>
+        public bool SummarizeNetworkConsent { get; set; }
         public WatermarkSettings Watermark { get; set; } = new WatermarkSettings();
         public List<UploadTarget> UploadTargets { get; set; } = new List<UploadTarget>();
         public List<HotkeyBinding> Hotkeys { get; set; } = new List<HotkeyBinding>
@@ -147,6 +168,7 @@ namespace BestSnap.Models
             new HotkeyBinding { Action = "Scrolling", Gesture = "Ctrl+Alt+PrintScreen" },
             new HotkeyBinding { Action = "RepeatLast", Gesture = "Ctrl+Shift+R" },
             new HotkeyBinding { Action = "Recorder", Gesture = "Ctrl+Shift+V" },
+            new HotkeyBinding { Action = "AudioRecorder", Gesture = "Ctrl+Shift+A" },
             new HotkeyBinding { Action = "OcrRegion", Gesture = "Ctrl+Shift+O" },
             new HotkeyBinding { Action = "PinRegion", Gesture = "Ctrl+Shift+P" },
             new HotkeyBinding { Action = "History", Gesture = "Ctrl+Shift+H" },

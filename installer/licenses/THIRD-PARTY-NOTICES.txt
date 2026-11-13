@@ -90,6 +90,22 @@ https://github.com/sskodje/ScreenRecorderLib
 License: MIT
 
 --------------------------------------------------------------------------
+NAudio
+https://github.com/naudio/NAudio
+License: MIT
+Used for WASAPI microphone/loopback capture and Media Foundation MP3 encoding.
+Not bundled as source; restored from NuGet (NAudio 2.2.1).
+
+--------------------------------------------------------------------------
+Whisper.net / whisper.cpp
+https://github.com/sandrohanea/whisper.net
+https://github.com/ggml-org/whisper.cpp
+License: MIT
+Used for on-device speech-to-text. Models (ggml-*.bin) are downloaded on first use
+into %LocalAppData%\BestSnap\models\whisper and are not bundled in the installer.
+Not bundled as source; restored from NuGet (Whisper.net 1.8.1, Whisper.net.Runtime 1.8.1).
+
+--------------------------------------------------------------------------
 WpfMath
 https://github.com/ForNeVeR/wpf-math
 License: MIT

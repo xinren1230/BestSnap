@@ -19,7 +19,7 @@ async function toolbar() {
     <button id="btn-region" data-m="region" title="矩形区域">▢</button>
     <button id="btn-window" data-m="window" title="窗口/对象">▣</button>
     <button id="btn-full" data-m="full" title="全屏">⛶</button>
-    <button id="btn-record" data-m="record" title="录屏">●</button>
+    <button id="btn-record" data-m="record" title="录制">●</button>
     <button class="more" id="more">更多 ▾</button>
     <button id="btn-hide" data-a="hide" title="最小化到托盘">—</button>
   </div>`);
@@ -41,12 +41,20 @@ async function toolbar() {
     <button data-a="ruler">屏幕标尺</button>
     <button data-a="open">打开图片到编辑器</button>
     <button data-a="timed">定时截图…</button>
+    <button data-a="audio">录制音频…</button>
+    <button data-a="live">仅转写（不保存音频）…</button>
     <button data-a="stitch">拼接长图…</button>
     <button data-a="compare">图片对比…</button>
     <div class="hr"></div>
     <button data-a="settings">设置</button>
   </div>`);
+  const recMenu = el(`<div class="menu hidden" id="rec-menu">
+    <button data-rec="screen">屏幕录制…</button>
+    <button data-rec="audio">录制音频…</button>
+    <button data-rec="live">仅转写（不保存音频）…</button>
+  </div>`);
   bar.appendChild(menu);
+  bar.appendChild(recMenu);
   app.appendChild(bar);
   let drag = null;
   bar.querySelector(".logo").addEventListener("mousedown", (e) => { drag = { x: e.screenX, y: e.screenY }; });
@@ -59,6 +67,7 @@ async function toolbar() {
   sf.on("recording", (m) => {
     const rec = document.getElementById("btn-record");
     if (rec) rec.classList.toggle("rec-on", !!(m && m.on));
+    recMenu.dataset.on = m && m.on ? "1" : "0";
   });
   bar.addEventListener("click", async (e) => {
     const b = e.target.closest("button");
@@ -70,7 +79,15 @@ async function toolbar() {
     }
     menu.classList.add("hidden");
     await sf.invoke("toolbar:menu", false);
-    if (b.dataset.m === "record") return sf.invoke("record:toggle");
+    if (b.dataset.m === "record") {
+      const on = recMenu.dataset.on === "1";
+      if (on) return sf.invoke("record:toggle");
+      recMenu.classList.toggle("hidden");
+      return;
+    }
+    if (b.dataset.rec === "screen") { recMenu.classList.add("hidden"); return sf.invoke("record:toggle"); }
+    if (b.dataset.rec === "audio") { recMenu.classList.add("hidden"); return sf.invoke("view:open", "audio"); }
+    if (b.dataset.rec === "live") { recMenu.classList.add("hidden"); return sf.invoke("view:open", "audio", { live: "1" }); }
     if (b.dataset.m === "repeat") return sf.invoke("capture:start", "region");
     if (b.dataset.m) return sf.invoke("capture:start", b.dataset.m);
     const a = b.dataset.a;
@@ -81,6 +98,8 @@ async function toolbar() {
     if (a === "mag") return sf.invoke("capture:start", "mag");
     if (a === "ruler") return sf.invoke("capture:start", "ruler");
     if (a === "timed") return sf.invoke("capture:start", "timed");
+    if (a === "audio") return sf.invoke("view:open", "audio");
+    if (a === "live") return sf.invoke("view:open", "audio", { live: "1" });
     if (a === "stitch") return sf.invoke("view:open", "stitch");
     if (a === "compare") return sf.invoke("view:open", "compare");
     if (a === "open") return sf.invoke("view:open", "editor");
@@ -149,7 +168,7 @@ async function overlay() {
     sh = Number(p.sh) || 1080;
     shot = p.shot || "";
     a = null; b = null; poly = [];
-    if (hint) hint.textContent = `拖选区域 · Esc 取消${mode === "window" ? " · 单击窗口" : ""}${mode === "freehand" ? " · 单击加点，Enter 完成" : ""}`;
+    if (hint) hint.textContent = `拖选区域 · Esc 取消${mode === "window" || mode === "record-window" ? " · 单击窗口" : ""}${mode === "freehand" ? " · 单击加点，Enter 完成" : ""}`;
     const bg = shot ? `url(file://${shot}) center / 100% 100% no-repeat #4a4d55` : "#4a4d55";
     document.documentElement.style.background = bg;
     document.body.style.background = bg;
@@ -158,7 +177,7 @@ async function overlay() {
       img.src = "file://" + shot;
       await img.decode().catch(() => {});
     }
-    if (mode === "window") wins = (await sf.invoke("windows:list")) || [];
+    if (mode === "window" || mode === "record-window") wins = (await sf.invoke("windows:list")) || [];
     if (mode === "fixed") {
       const s = await sf.invoke("settings:get");
       fixedW = s.fixedRegionWidth; fixedH = s.fixedRegionHeight;
@@ -188,7 +207,7 @@ async function overlay() {
   }
   cv.addEventListener("mousedown", (e) => {
     if (mode === "freehand") { poly.push({ x: e.offsetX, y: e.offsetY }); draw(); return; }
-    if (mode === "window" || mode === "picker") return;
+    if (mode === "window" || mode === "record-window" || mode === "picker") return;
     a = { x: e.offsetX, y: e.offsetY }; b = { ...a };
   });
   cv.addEventListener("mousemove", (e) => {
@@ -199,18 +218,18 @@ async function overlay() {
       draw();
       return;
     }
-    if (!a || mode === "freehand" || mode === "window" || mode === "picker") return;
+    if (!a || mode === "freehand" || mode === "window" || mode === "record-window" || mode === "picker") return;
     b = { x: e.offsetX, y: e.offsetY }; draw();
   });
-  cv.addEventListener("mouseup", () => { if (mode !== "freehand" && mode !== "window" && mode !== "picker" && mode !== "fixed") finishRect(); });
+  cv.addEventListener("mouseup", () => { if (mode !== "freehand" && mode !== "window" && mode !== "record-window" && mode !== "picker" && mode !== "fixed") finishRect(); });
   cv.addEventListener("click", async (e) => {
     if (mode === "fixed") { finishRect(); return; }
-    if (mode === "window") {
+    if (mode === "window" || mode === "record-window") {
       const sx = sw / cv.width, sy = sh / cv.height;
       const px = e.offsetX * sx, py = e.offsetY * sy;
       const hit = (wins || []).find((w) => px >= w.x && py >= w.y && px <= w.x + w.w && py <= w.y + w.h);
       if (!hit) return;
-      sf.invoke("capture:result", { file: shot, x: hit.x, y: hit.y, w: hit.w, h: hit.h, mode: "window" });
+      sf.invoke("capture:result", { file: shot, x: hit.x, y: hit.y, w: hit.w, h: hit.h, mode });
       return;
     }
     if (mode === "picker") {
@@ -437,11 +456,19 @@ async function settingsView() {
     </div>
     <h2>录屏</h2>
     <div class="grid">
+      <label>范围</label><select id="rsrc"><option>Monitor</option><option>VirtualScreen</option><option>Region</option><option>Window</option></select>
       <label>格式</label><select id="rfmt"><option>Mp4</option><option>Gif</option></select>
       <label>帧率</label><input id="rfps" type="number" value="${s.recording.fps}" />
       <label>画质</label><input id="rq" type="number" value="${s.recording.quality}" />
       <label>麦克风</label><input id="rmic" type="checkbox" ${s.recording.microphone?"checked":""} />
+      <label>系统声音</label><input id="rsys" type="checkbox" ${s.recording.systemAudio?"checked":""} />
       <label>保存文件夹</label><input id="rdir" value="${s.recording.saveFolder||""}" />
+    </div>
+    <h2>录音</h2>
+    <div class="grid">
+      <label>来源</label><select id="asrc"><option>Microphone</option><option>System</option><option>Mix</option></select>
+      <label>格式</label><select id="afmt"><option>Wav</option><option>Mp3</option></select>
+      <label>保存文件夹</label><input id="adir" value="${(s.audioRecording&&s.audioRecording.saveFolder)||""}" />
     </div>
     <h2>热键</h2>
     <div id="hk"></div>
@@ -452,6 +479,9 @@ async function settingsView() {
   document.getElementById("feng").value = s.formula.engine;
   document.getElementById("tp").value = s.translate.provider;
   document.getElementById("rfmt").value = s.recording.format;
+  document.getElementById("rsrc").value = s.recording.source || "Monitor";
+  document.getElementById("asrc").value = (s.audioRecording && s.audioRecording.source) || "Microphone";
+  document.getElementById("afmt").value = (s.audioRecording && s.audioRecording.format) || "Wav";
   const hk = document.getElementById("hk");
   hk.innerHTML = s.hotkeys.map((h,i)=>`<div class="grid"><label>${h.action}</label><input data-hk="${i}" value="${h.gesture}"></div>`).join("");
   document.getElementById("save").onclick = async () => {
@@ -470,7 +500,8 @@ async function settingsView() {
       autostart: document.getElementById("auto").checked,
       formula: { ...s.formula, engine: document.getElementById("feng").value, apiBase: document.getElementById("obase").value, apiModel: document.getElementById("omodel").value, apiKey: document.getElementById("okey").value, mathpixAppId: document.getElementById("mid").value, mathpixKey: document.getElementById("mkey").value },
       translate: { ...s.translate, provider: document.getElementById("tp").value, endpoint: document.getElementById("tep").value, key: document.getElementById("tkey").value },
-      recording: { ...s.recording, format: document.getElementById("rfmt").value, fps: +document.getElementById("rfps").value, quality: +document.getElementById("rq").value, microphone: document.getElementById("rmic").checked, saveFolder: document.getElementById("rdir").value },
+      recording: { ...s.recording, source: document.getElementById("rsrc").value, format: document.getElementById("rfmt").value, fps: +document.getElementById("rfps").value, quality: +document.getElementById("rq").value, microphone: document.getElementById("rmic").checked, systemAudio: document.getElementById("rsys").checked, saveFolder: document.getElementById("rdir").value },
+      audioRecording: { ...(s.audioRecording||{}), source: document.getElementById("asrc").value, format: document.getElementById("afmt").value, saveFolder: document.getElementById("adir").value },
       hotkeys: s.hotkeys.map((h,i)=>({ action:h.action, gesture: document.querySelector(`[data-hk="${i}"]`).value })),
     };
     await sf.invoke("settings:save", next);
@@ -740,5 +771,186 @@ function backdropView() {
   app.innerHTML = `<iframe id="pg" src="../demo-page.html" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>`;
 }
 
-const pages = { toolbar, overlay, editor, settings: settingsView, history: historyView, result: resultView, pin: pinView, stitch: stitchView, compare: compareView, demo: demoView, caption: captionView, backdrop: backdropView };
+async function doneView() {
+  document.documentElement.style.background = "#f6f6f7";
+  let file = q.get("file") || "";
+  const live = q.get("live") === "1";
+  const plan = file ? await sf.invoke("trim:plan", file) : { canTrim: false };
+  app.className = "page";
+  app.innerHTML = `<h1>${live ? "仅转写（不保存音频）" : "录制完成"}</h1>
+    <p id="banner">${live ? "音频未保存。可复制或导出文本。" : "录音尚未保存到你的文件夹。关闭前请点“保存”。"}</p>
+    <p><code id="p">${file}</code></p>
+    <p>
+      <button id="folder" ${file ? "" : "disabled"}>打开文件夹</button>
+      <button id="open" ${file ? "" : "disabled"}>打开文件</button>
+      <button id="trim" ${plan.canTrim ? "" : "disabled"}>剪辑</button>
+      <button id="save" ${live ? "disabled" : ""}>保存</button>
+    </p>
+    <p>
+      <button id="tx">转写</button>
+      <button id="copy">复制</button>
+      <button id="txt">保存 .txt</button>
+      <button id="srt">保存 .srt</button>
+      <button id="sum">摘要</button>
+      <button id="md">保存 .md</button>
+    </p>
+    <pre id="out" style="white-space:pre-wrap;max-height:280px;overflow:auto;background:#fff;padding:10px"></pre>
+    <p id="st"></p>`;
+  const st = (t) => { document.getElementById("st").textContent = t; };
+  document.getElementById("folder").onclick = () => sf.invoke("shell:show", file);
+  document.getElementById("open").onclick = () => sf.invoke("shell:open", file);
+  document.getElementById("trim").onclick = () => sf.invoke("view:open", "trim", { file });
+  document.getElementById("save").onclick = async () => {
+    const dest = await sf.invoke("record:saveAs", file);
+    if (dest) { file = dest; document.getElementById("p").textContent = dest; st("已保存: " + dest); }
+  };
+  let cues = [];
+  try { cues = JSON.parse(q.get("cues") || "[]"); } catch { cues = []; }
+  const render = (text) => { document.getElementById("out").textContent = text; };
+  if (cues.length) render(await sf.invoke("transcript:txt", cues));
+  document.getElementById("tx").onclick = async () => {
+    if (live) { st("音频未保存。"); return; }
+    st("正在本机转写…");
+    try {
+      cues = await sf.invoke("transcript:file", file);
+      render(await sf.invoke("transcript:txt", cues));
+      st("转写完成，共 " + cues.length + " 段。音频仅在本机处理。");
+    } catch (e) { st(String(e)); }
+  };
+  document.getElementById("copy").onclick = async () => {
+    const t = document.getElementById("out").textContent || "";
+    await sf.invoke("clipboard:writeText", t);
+    st("已复制。");
+  };
+  document.getElementById("txt").onclick = () => sf.invoke("transcript:save", { cues, ext: ".txt" });
+  document.getElementById("srt").onclick = () => sf.invoke("transcript:save", { cues, ext: ".srt" });
+  document.getElementById("sum").onclick = async () => {
+    st("正在生成本机摘要…");
+    const md = await sf.invoke("transcript:summarize", cues);
+    render(md);
+    st("本机抽取式摘要完成。");
+    document.getElementById("md").onclick = () => sf.invoke("transcript:saveMd", md);
+  };
+  document.getElementById("md").onclick = () => sf.invoke("transcript:saveMd", document.getElementById("out").textContent || "");
+}
+
+async function audioView() {
+  document.documentElement.style.background = "#f6f6f7";
+  const s = await sf.invoke("settings:get");
+  app.className = "page";
+  const folder = (s.audioRecording && s.audioRecording.saveFolder) || "";
+  const liveStart = q.get("live") === "1";
+  app.innerHTML = `<h1>${liveStart ? "仅转写（不保存音频）" : "音频录制"}</h1>
+    <div class="grid" style="border:2px solid #7c3aed;border-radius:8px;padding:10px;background:#f5f3ff">
+      <label>音频来源</label><select id="src"><option value="Microphone">麦克风</option><option value="System">系统声音</option><option value="Mix">麦克风 + 系统声音</option></select>
+      <label>格式</label><select id="fmt"><option>Wav</option><option>Mp3</option></select>
+      <label>保存文件夹</label><input id="dir" value="${folder}" />
+    </div>
+    <p style="color:#5b21b6">${liveStart ? "仅转写默认使用「麦克风 + 系统声音」。耳机环回往往几乎没有语音，可改麦克风或混合。" : ""}</p>
+    <p><label><input type="checkbox" id="live" ${liveStart ? "checked" : ""}/> 仅转写（不保存音频）</label></p>
+    <p style="color:#b45309">仅转写：音频不会保存，只保留在内存中的短片段并在转写后立即丢弃。</p>
+    <p>
+      <button id="start">开始</button>
+      <button id="pause">暂停</button>
+      <button id="resume">继续</button>
+      <button id="stop">停止</button>
+      <span id="st"></span>
+    </p>`;
+  const liveSrc = (s.audioRecording && s.audioRecording.liveSource) || (liveStart ? "Mix" : null);
+  document.getElementById("src").value = liveStart
+    ? (liveSrc || "Mix")
+    : ((s.audioRecording && s.audioRecording.source) || "Microphone");
+  document.getElementById("fmt").value = (s.audioRecording && s.audioRecording.format) || "Wav";
+  let rec = false;
+  document.getElementById("start").onclick = async () => {
+    const src = document.getElementById("src").value;
+    const fmt = document.getElementById("fmt").value;
+    const dir = document.getElementById("dir").value;
+    const live = document.getElementById("live").checked;
+    const prev = s.audioRecording || {};
+    await sf.invoke("settings:save", { ...s, audioRecording: { ...prev, source: live ? (prev.source || "Microphone") : src, liveSource: live ? src : prev.liveSource, format: fmt, saveFolder: dir } });
+    if (live) {
+      rec = true;
+      document.getElementById("st").textContent = "仅转写中（不保存音频）";
+      await sf.invoke("live:start", { mic: src !== "System", system: src !== "Microphone" });
+      return;
+    }
+    const out = await sf.invoke("record:audioTemp", { mic: src !== "System", system: src !== "Microphone", format: fmt });
+    rec = true;
+    document.getElementById("st").textContent = out;
+  };
+  document.getElementById("pause").onclick = () => {
+    if (document.getElementById("live").checked) return sf.invoke("live:pause");
+    return sf.invoke("record:audioPause");
+  };
+  document.getElementById("resume").onclick = () => {
+    if (document.getElementById("live").checked) return sf.invoke("live:resume");
+    return sf.invoke("record:audioResume");
+  };
+  document.getElementById("stop").onclick = async () => {
+    if (!rec) return;
+    if (document.getElementById("live").checked) {
+      const cues = await sf.invoke("live:stop");
+      rec = false;
+      sf.invoke("view:open", "done", { live: "1", cues: JSON.stringify(cues || []) });
+      return;
+    }
+    await sf.invoke("record:audioStop");
+    rec = false;
+    const file = document.getElementById("st").textContent;
+    if (file) sf.invoke("view:open", "done", { file });
+  };
+}
+
+async function trimView() {
+  document.documentElement.style.background = "#f6f6f7";
+  const file = q.get("file") || "";
+  const plan = await sf.invoke("trim:plan", file);
+  app.className = "page";
+  const media = plan.audio
+    ? `<audio id="au" controls src="file://${file}" style="width:100%;margin-top:12px"></audio>`
+    : `<video id="au" controls src="file://${file}" style="width:100%;max-height:320px;margin-top:12px;background:#000"></video>`;
+  app.innerHTML = `<h1>剪辑</h1>
+    <p>${file}</p>
+    <p>删除区间（秒），可从中间剪切。多段用逗号：<code>1-2,5-6</code></p>
+    <input id="cuts" placeholder="例如 3-5" style="width:100%" />
+    <p>
+      <button id="go">导出剪辑</button>
+      <span id="msg"></span>
+    </p>
+    ${media}`;
+  document.getElementById("go").onclick = async () => {
+    const raw = document.getElementById("cuts").value || "";
+    const remove = raw.split(",").map((p) => {
+      const [a, b] = p.split("-").map(Number);
+      return { start: a, end: b };
+    }).filter((r) => r.end > r.start);
+    const dur = document.getElementById("au").duration || 0;
+    const keep = await sf.invoke("trim:keep", { duration: dur, remove });
+    if (!keep.length) { document.getElementById("msg").textContent = "没有可保留的片段。"; return; }
+    let out = plan.out;
+    const tryCut = async (overwrite) => sf.invoke("trim:cut", { input: file, output: out, keep, video: !plan.audio, audio: true, overwrite });
+    document.getElementById("msg").textContent = "正在导出…";
+    try {
+      await tryCut(false);
+      document.getElementById("msg").textContent = "已保存 " + out;
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("exists-confirm") || msg.includes("overwrite-confirm")) {
+        if (!confirm("目标文件已存在或与原文件相同。确定覆盖吗？")) {
+          document.getElementById("msg").textContent = "";
+          return;
+        }
+        try {
+          await tryCut(true);
+          document.getElementById("msg").textContent = "已保存 " + out;
+        } catch (e2) {
+          document.getElementById("msg").textContent = String(e2);
+        }
+      } else document.getElementById("msg").textContent = msg;
+    }
+  };
+}
+
+const pages = { toolbar, overlay, editor, settings: settingsView, history: historyView, result: resultView, pin: pinView, stitch: stitchView, compare: compareView, demo: demoView, caption: captionView, backdrop: backdropView, done: doneView, audio: audioView, trim: trimView };
 void Promise.resolve((pages[view] || toolbar)()).catch((e) => { app.textContent = String(e); });

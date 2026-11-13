@@ -47,13 +47,19 @@ Node 版目录：`node/`（Electron + TypeScript + 无头 CLI）。目标环境�
 | 二维码/条码 | ZXing.Net | 完整 | `@zxing/library`（Apache-2.0） |
 | 自动打码（邮箱/电话/证件/URL + 人脸） | 完整 | 部分 | 文本规则完整（OCR 框）。**人脸：Windows.Media.FaceAnalysis 不可用**，未捆绑闭源/额外人脸模型 |
 | 录屏 MP4 H.264 | ScreenRecorderLib | 替代 | **ffmpeg x11grab + libx264**（Linux 无 Media Foundation） |
+| 录屏来源：区域 / 单屏 / 全部显示器 / 窗口 | 完整 | 部分 | Linux：x11grab 区域或虚拟桌面；开录前藏 UI（无 WDA_EXCLUDEFROMCAPTURE） |
 | 录屏 GIF | 完整 | 完整 | ffmpeg paletteuse |
-| 系统声 / 麦克风 / 音量 | 完整 | 部分 | Pulse `ffmpeg -f pulse`（无 Pulse 则无声）；无 WASAPI 环回 |
+| 系统声 / 麦克风 / 音量 | 完整 | 部分 | Pulse `ffmpeg -f pulse`（无 Pulse 则无声）；系统声用 `.monitor` 环回 |
+| 纯音频录制 WAV/MP3 | NAudio WASAPI | 替代 | ffmpeg pulse；混音 `amix`；先写临时文件再另存 |
+| 录后完成对话框（预览 / 保存 / 打开 / 剪辑 / 转写 / 摘要） | 完整 | 完整 | Linux 用 `shell.showItemInFolder`；转写需本机 `whisper-cli` |
+| 仅转写（不保存音频） | Whisper.net 滚动块 | 部分 | ffmpeg pulse 分段 WAV，转写后立即删除；有 whisper-cli 才出字幕 |
+| 本机转写 / 摘要 | Whisper.net + 可插拔 LLM | 部分 | 摘要用本机 TextRank；Whisper 模型不随 Linux 包分发 |
+| 剪辑中间剪切 | ffmpeg / 原生 WAV / WinRT 回退 | 替代 | ffmpeg `filter_complex` concat 重编码；需本机 ffmpeg |
 | 摄像头 PIP | WinRT MediaCapture | 替代 | 未默认打开；可用 ffmpeg v4l2 自行叠加。无圆形气泡窗 |
 | 按键/点击叠层 | 低级钩子 | 部分 | Linux 全局键鼠钩子需 root/input 组，默认关闭以免进录像隐私 |
 | 录制排除自身窗口 | DWM | 不可行 | X11 无等价 API；改为开录前隐藏工具栏 |
 | 区域边框 / 控制条 / 倒计时 | 完整 | 部分 | 控制条与选项在 UI；倒计时设置保留 |
-| 视频裁剪 | 插件 | 替代 | `ffmpeg -ss -to`（无损重封装视编码而定） |
+| 视频裁剪 | 插件 + ffmpeg 多段 | 替代 | 多段用 `filter_complex` 重编码保帧准；单段 `-ss/-to` |
 | 取色器 HEX/RGB | 完整 | 完整 | |
 | 屏幕放大镜 2–16× | 完整 | 部分 | 覆盖层缩放；未做独立置顶跟随窗的每一帧位图拷贝 |
 | 屏幕标尺 | 完整 | 部分 | 入口保留；物理像素刻度简化 |

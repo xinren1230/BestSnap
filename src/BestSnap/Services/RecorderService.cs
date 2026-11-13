@@ -6,6 +6,7 @@ using System.Windows;
 using ScreenRecorderLib;
 using BestSnap.Models;
 using BestSnap.Native;
+using BestSnap.Plugins;
 
 namespace BestSnap.Services
 {
@@ -22,8 +23,11 @@ namespace BestSnap.Services
     {
         private Recorder _rec;
         private GifRecorder _gif;
+        readonly CaptureSessionState _session = new CaptureSessionState();
         public bool IsRecording { get; private set; }
         public bool IsPaused { get; private set; }
+        public CaptureSessionPhase SessionPhase => _session.Phase;
+        public int SessionCycle => _session.Cycle;
         public string CurrentFile { get; private set; }
         public event Action<string> Completed;
         /// <summary>Raised (UI thread) when frames are actually being captured — status Recording, not the Record() call (MF startup can take seconds).</summary>
@@ -58,14 +62,7 @@ namespace BestSnap.Services
         // ---- recorded overlays (keystrokes, webcam bubble) ----
         private readonly List<Window> _extras = new List<Window>();
 
-        private static Int32Rect RecordArea(RecordingRequest req)
-        {
-            if (req.WindowHandle != IntPtr.Zero) { var r = NativeMethods.GetWindowBounds(req.WindowHandle); return new Int32Rect(r.Left, r.Top, Math.Max(1, r.Width), Math.Max(1, r.Height)); }
-            if (req.Region.HasValue) return req.Region.Value;
-            var scr = System.Windows.Forms.Screen.PrimaryScreen;
-            foreach (var sc in System.Windows.Forms.Screen.AllScreens) if (sc.DeviceName == req.Options.MonitorDevice) scr = sc;
-            var b = scr.Bounds; return new Int32Rect(b.X, b.Y, b.Width, b.Height);
-        }
+        private static Int32Rect RecordArea(RecordingRequest req) => ResolveArea(req);
 
         /// <summary>Webcam via ScreenRecorderLib overlay (MP4, rectangle) — or via the circular bubble window (needs plugin)?</summary>
         private static bool UseBubble(RecordingRequest req)
@@ -97,20 +94,109 @@ namespace BestSnap.Services
         public static List<(string Device, string Name)> GetMicrophones()
         {
             var list = new List<(string, string)>();
-            foreach (var d in Recorder.GetSystemAudioDevices(AudioDeviceSource.InputDevices)) list.Add((d.DeviceName, d.FriendlyName));
+            try { foreach (var d in Recorder.GetSystemAudioDevices(AudioDeviceSource.InputDevices)) list.Add((d.DeviceName, d.FriendlyName)); } catch (Exception ex) { Logger.Error("GetMicrophones", ex); }
             return list;
         }
 
+        public static List<(string Device, string Name)> GetSystemOutputs()
+        {
+            var list = new List<(string, string)>();
+            try { foreach (var d in Recorder.GetSystemAudioDevices(AudioDeviceSource.OutputDevices)) list.Add((d.DeviceName, d.FriendlyName)); } catch (Exception ex) { Logger.Error("GetSystemOutputs", ex); }
+            return list;
+        }
+
+        public static List<MonitorRect> ListMonitors()
+        {
+            var list = new List<MonitorRect>();
+            foreach (var s in System.Windows.Forms.Screen.AllScreens)
+                list.Add(new MonitorRect(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height, s.DeviceName));
+            return list;
+        }
+
+        /// <summary>Physical-pixel rectangle that will actually be captured (after even-size / monitor clip).</summary>
+        public static Int32Rect ResolveArea(RecordingRequest req)
+        {
+            if (req == null) return new Int32Rect(0, 0, 0, 0);
+            return ToInt32(ResolveAreaI(req));
+        }
+
+        static IntRect ResolveAreaI(RecordingRequest req)
+        {
+            var o = req.Options ?? new RecordingSettings();
+            if (req.WindowHandle != IntPtr.Zero)
+            {
+                var r = NativeMethods.GetWindowBounds(req.WindowHandle);
+                return RecordRectMath.EvenSize(new IntRect(r.Left, r.Top, Math.Max(0, r.Width), Math.Max(0, r.Height)));
+            }
+            var monitors = ListMonitors();
+            if (req.Region.HasValue)
+            {
+                var r = req.Region.Value;
+                var ir = new IntRect(r.X, r.Y, r.Width, r.Height);
+                if (RecordRectMath.FitsOneMonitor(ir, monitors, out int idx) && idx >= 0)
+                {
+                    var crop = RecordRectMath.MonitorLocalEvenCrop(ir, monitors[idx]);
+                    var m = monitors[idx];
+                    return new IntRect(m.X + crop.X, m.Y + crop.Y, crop.Width, crop.Height);
+                }
+                var vcrop = RecordRectMath.VirtualLocalEvenCrop(ir, monitors);
+                var vs = RecordRectMath.VirtualScreen(monitors);
+                return new IntRect(vs.X + vcrop.X, vs.Y + vcrop.Y, vcrop.Width, vcrop.Height);
+            }
+            if (o.Source == RecordSourceKind.VirtualScreen)
+                return RecordRectMath.EvenSize(RecordRectMath.VirtualScreen(monitors));
+            var scr = System.Windows.Forms.Screen.PrimaryScreen;
+            foreach (var sc in System.Windows.Forms.Screen.AllScreens)
+                if (sc.DeviceName == o.MonitorDevice) scr = sc;
+            var b = scr.Bounds;
+            return RecordRectMath.EvenSize(new IntRect(b.X, b.Y, b.Width, b.Height));
+        }
+
+        static Int32Rect ToInt32(IntRect r) => new Int32Rect(r.X, r.Y, r.Width, r.Height);
+
         public void Start(RecordingRequest req, string defaultFolder)
         {
-            if (IsRecording) return;
+            if (IsRecording && (_rec != null || _gif != null))
+            {
+                Logger.Info("Recorder start ignored: already recording phase=" + _session.Phase);
+                return;
+            }
+            if (IsRecording)
+            {
+                Logger.Info("Recorder stuck IsRecording with no backend; resetting");
+                IsRecording = false; IsPaused = false; HasStarted = false;
+                _session.Reset("stuck");
+            }
+            if (!_session.TryBeginStart(out string why))
+            {
+                if (IsRecording && (_rec != null || _gif != null))
+                {
+                    Logger.Info("Recorder start ignored: " + why);
+                    return;
+                }
+                Logger.Info("Recorder start recovering " + why);
+                _session.Reset("recover");
+                if (!_session.TryBeginStart(out why))
+                {
+                    Logger.Info("Recorder start ignored: " + why);
+                    return;
+                }
+            }
+            Release();
+            _gif = null;
+            Logger.Info("Recorder session Starting cycle=" + _session.Cycle);
             HasStarted = false;
+            try
+            {
             var o = req.Options;
-            string folder = string.IsNullOrWhiteSpace(o.SaveFolder) ? defaultFolder : o.SaveFolder;
-            Directory.CreateDirectory(folder);
             bool gif = o.Format == RecordFormat.Gif;
-            CurrentFile = !string.IsNullOrWhiteSpace(req.OutputPath) ? req.OutputPath
-                : Path.Combine(folder, "Rec_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + (gif ? ".gif" : ".mp4"));
+            if (!string.IsNullOrWhiteSpace(req.OutputPath))
+                CurrentFile = req.OutputPath;
+            else
+            {
+                string folder = TempRecordingStore.EnsureFolder(AppPaths.LocalData);
+                CurrentFile = TempRecordingStore.NewMediaPath(folder, "Rec", gif ? ".gif" : ".mp4", DateTime.UtcNow);
+            }
             var outDir = Path.GetDirectoryName(CurrentFile); if (!string.IsNullOrEmpty(outDir)) Directory.CreateDirectory(outDir);
             if (gif) { StartGif(req); return; }
 
@@ -120,14 +206,32 @@ namespace BestSnap.Services
                 sources.Add(new WindowRecordingSource(req.WindowHandle) { IsCursorCaptureEnabled = o.ShowCursor });
             else if (req.Region.HasValue)
             {
-                // Record the monitor that contains the region, cropped via SourceRect (coordinates relative to that monitor).
                 var r = req.Region.Value;
-                var scr = PickScreen(r, out bool spans);
-                if (spans) RegionClipped?.Invoke(scr.DeviceName);
-                sources.Add(new DisplayRecordingSource(scr.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
-                var c = CaptureService.Clip(new Int32Rect(r.X - scr.Bounds.X, r.Y - scr.Bounds.Y, r.Width, r.Height), scr.Bounds.Width, scr.Bounds.Height);
-                int w = c.Width & ~1, h = c.Height & ~1; // H.264 needs even dimensions
-                sourceRect = new ScreenRect(c.X, c.Y, w, h);
+                var ir = new IntRect(r.X, r.Y, r.Width, r.Height);
+                var monitors = ListMonitors();
+                if (RecordRectMath.FitsOneMonitor(ir, monitors, out int idx) && idx >= 0)
+                {
+                    var m = monitors[idx];
+                    sources.Add(new DisplayRecordingSource(m.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
+                    var c = RecordRectMath.MonitorLocalEvenCrop(ir, m);
+                    sourceRect = new ScreenRect(c.X, c.Y, c.Width, c.Height);
+                }
+                else
+                {
+                    foreach (var m in monitors)
+                        sources.Add(new DisplayRecordingSource(m.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
+                    var c = RecordRectMath.VirtualLocalEvenCrop(ir, monitors);
+                    sourceRect = new ScreenRect(c.X, c.Y, c.Width, c.Height);
+                    if (RecordRectMath.PickMonitorIndex(ir, monitors, out bool spans) >= 0 && spans)
+                        RegionClipped?.Invoke("virtual");
+                }
+            }
+            else if (o.Source == RecordSourceKind.VirtualScreen)
+            {
+                foreach (var m in ListMonitors())
+                    sources.Add(new DisplayRecordingSource(m.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
+                if (sources.Count == 0)
+                    sources.Add(new DisplayRecordingSource(DisplayRecordingSource.MainMonitor.DeviceName) { IsCursorCaptureEnabled = o.ShowCursor });
             }
             else
             {
@@ -141,7 +245,7 @@ namespace BestSnap.Services
                 OutputOptions = new OutputOptions { RecorderMode = RecorderMode.Video },
                 VideoEncoderOptions = new VideoEncoderOptions
                 {
-                    Framerate = o.Fps, Quality = Math.Clamp(o.Quality, 1, 100), IsHardwareEncodingEnabled = true,
+                    Framerate = RecordRectMath.NormalizeFps(o.Fps > 0 ? o.Fps : 30), Quality = Math.Clamp(o.Quality, 1, 100), IsHardwareEncodingEnabled = true,
                     Encoder = new H264VideoEncoder { BitrateMode = H264BitrateControlMode.Quality, EncoderProfile = H264Profile.High }
                 },
                 AudioOptions = new AudioOptions
@@ -149,7 +253,8 @@ namespace BestSnap.Services
                     IsAudioEnabled = o.SystemAudio || o.Microphone,
                     IsOutputDeviceEnabled = o.SystemAudio,
                     IsInputDeviceEnabled = o.Microphone,
-                    AudioInputDevice = o.Microphone ? o.MicrophoneDevice : null,
+                    AudioInputDevice = o.Microphone && !string.IsNullOrWhiteSpace(o.MicrophoneDevice) ? o.MicrophoneDevice : null,
+                    AudioOutputDevice = o.SystemAudio && !string.IsNullOrWhiteSpace(o.SystemAudioDevice) ? o.SystemAudioDevice : null,
                     InputVolume = (float)Math.Clamp(o.MicVolume, 0, 1),
                     OutputVolume = (float)Math.Clamp(o.SystemVolume, 0, 1),
                 },
@@ -190,7 +295,9 @@ namespace BestSnap.Services
                 Logger.Info("Recorder: complete " + e.FilePath + (File.Exists(e.FilePath) ? " (" + new FileInfo(e.FilePath).Length + " bytes)" : " (missing)"));
                 ui.BeginInvoke(new Action(() =>
                 {
-                    IsRecording = false; IsPaused = false; StopExtras();
+                    IsRecording = false; IsPaused = false; HasStarted = false; StopExtras();
+                    _session.MarkFinished();
+                    Logger.Info("Recorder session Finished cycle=" + _session.Cycle);
                     Completed?.Invoke(e.FilePath);
                     if (ReferenceEquals(_rec, rec)) Release(); // dispose only after the file has been finalized and handed off
                 }));
@@ -198,11 +305,31 @@ namespace BestSnap.Services
             rec.OnRecordingFailed += (s, e) =>
             {
                 Logger.Info("Recorder: FAILED " + e.Error + " (file " + e.FilePath + ")");
-                ui.BeginInvoke(new Action(() => { IsRecording = false; IsPaused = false; StopExtras(); if (ReferenceEquals(_rec, rec)) Release(); Failed?.Invoke(e.Error); }));
+                ui.BeginInvoke(new Action(() =>
+                {
+                    IsRecording = false; IsPaused = false; HasStarted = false; StopExtras();
+                    _session.MarkFailed();
+                    Logger.Info("Recorder session Failed cycle=" + _session.Cycle);
+                    if (ReferenceEquals(_rec, rec)) Release();
+                    Failed?.Invoke(e.Error);
+                }));
             };
             StartExtras(req);
             _rec.Record(CurrentFile);
             IsRecording = true;
+            _session.TryMarkRunning(out _);
+            Logger.Info("Recorder session Running cycle=" + _session.Cycle);
+            }
+            catch
+            {
+                IsRecording = false; IsPaused = false; HasStarted = false;
+                try { Release(); } catch { }
+                _gif = null;
+                StopExtras();
+                _session.MarkFailed();
+                Logger.Info("Recorder session Failed cycle=" + _session.Cycle + " start-throw");
+                throw;
+            }
         }
 
         private void StartGif(RecordingRequest req)
@@ -215,7 +342,16 @@ namespace BestSnap.Services
                 if (NativeMethods.IsIconic(h)) { NativeMethods.ShowWindow(h, 9); System.Threading.Thread.Sleep(250); }
                 rect = () => { var r = NativeMethods.GetWindowBounds(h); return r.Width > 0 ? new Int32Rect(r.Left, r.Top, r.Width, r.Height) : (Int32Rect?)null; };
             }
-            else if (req.Region.HasValue) { var r = req.Region.Value; rect = () => r; }
+            else if (req.Region.HasValue)
+            {
+                var area = ResolveArea(req);
+                rect = () => area;
+            }
+            else if (o.Source == RecordSourceKind.VirtualScreen)
+            {
+                var vs = CaptureService.VirtualScreen;
+                rect = () => vs;
+            }
             else
             {
                 var scr = System.Windows.Forms.Screen.PrimaryScreen;
@@ -223,12 +359,27 @@ namespace BestSnap.Services
                 var b = scr.Bounds; rect = () => new Int32Rect(b.X, b.Y, b.Width, b.Height);
             }
             _gif = new GifRecorder(CurrentFile, rect, o.GifFps, o.GifMaxWidth, o.ShowCursor);
-            _gif.Completed += f => { IsRecording = false; IsPaused = false; _gif = null; StopExtras(); Completed?.Invoke(f); };
-            _gif.Failed += e => { IsRecording = false; IsPaused = false; _gif = null; StopExtras(); Failed?.Invoke(e); };
+            _gif.Completed += f =>
+            {
+                IsRecording = false; IsPaused = false; HasStarted = false; _gif = null; StopExtras();
+                _session.MarkFinished();
+                Logger.Info("Recorder session Finished cycle=" + _session.Cycle + " gif");
+                Completed?.Invoke(f);
+            };
+            _gif.Failed += e =>
+            {
+                IsRecording = false; IsPaused = false; HasStarted = false; _gif = null; StopExtras();
+                _session.MarkFailed();
+                Logger.Info("Recorder session Failed cycle=" + _session.Cycle + " gif");
+                Failed?.Invoke(e);
+            };
             StartExtras(req);
             _gif.Start();
             IsRecording = true;
-            HasStarted = true; Application.Current?.Dispatcher.BeginInvoke(new Action(() => Started?.Invoke()));
+            HasStarted = true;
+            _session.TryMarkRunning(out _);
+            Logger.Info("Recorder session Running cycle=" + _session.Cycle + " gif");
+            Application.Current?.Dispatcher.BeginInvoke(new Action(() => Started?.Invoke()));
         }
 
         /// <summary>Change mic / system volume while recording (MP4 only).</summary>
@@ -245,22 +396,42 @@ namespace BestSnap.Services
         /// <summary>Monitor with the largest overlap with the region (desktop duplication records one output per source).</summary>
         public static System.Windows.Forms.Screen PickScreen(Int32Rect r, out bool spansMonitors)
         {
-            var rr = new System.Drawing.Rectangle(r.X, r.Y, r.Width, r.Height);
-            System.Windows.Forms.Screen best = System.Windows.Forms.Screen.PrimaryScreen; long bestArea = -1; int hits = 0;
+            var monitors = ListMonitors();
+            int i = RecordRectMath.PickMonitorIndex(new IntRect(r.X, r.Y, r.Width, r.Height), monitors, out spansMonitors);
+            if (i < 0) return System.Windows.Forms.Screen.PrimaryScreen;
+            string name = monitors[i].DeviceName;
             foreach (var sc in System.Windows.Forms.Screen.AllScreens)
-            {
-                var i = System.Drawing.Rectangle.Intersect(sc.Bounds, rr);
-                long a = (long)i.Width * i.Height;
-                if (a > 0) hits++;
-                if (a > bestArea) { bestArea = a; best = sc; }
-            }
-            spansMonitors = hits > 1;
-            return best;
+                if (sc.DeviceName == name) return sc;
+            return System.Windows.Forms.Screen.PrimaryScreen;
         }
 
-        public void Pause() { if (IsRecording && !IsPaused) { _rec?.Pause(); _gif?.Pause(); IsPaused = true; } }
-        public void Resume() { if (IsRecording && IsPaused) { _rec?.Resume(); _gif?.Resume(); IsPaused = false; } }
-        public void Stop() { Logger.Info("Recorder: Stop requested"); _rec?.Stop(); _gif?.Stop(); }
+        public void Pause()
+        {
+            if (!_session.TryPause(out string why)) { Logger.Info("Recorder pause ignored: " + why); return; }
+            _rec?.Pause(); _gif?.Pause(); IsPaused = true;
+            Logger.Info("Recorder session Paused");
+        }
+        public void Resume()
+        {
+            if (!_session.TryResume(out string why)) { Logger.Info("Recorder resume ignored: " + why); return; }
+            _rec?.Resume(); _gif?.Resume(); IsPaused = false;
+            Logger.Info("Recorder session Running");
+        }
+        public void Stop()
+        {
+            if (!_session.TryBeginStop(out string why))
+            {
+                if (!IsRecording && _rec == null && _gif == null)
+                {
+                    Logger.Info("Recorder stop ignored: " + why);
+                    return;
+                }
+                Logger.Info("Recorder stop leftover (" + why + ")");
+            }
+            Logger.Info("Recorder session Stopping cycle=" + _session.Cycle);
+            _rec?.Stop();
+            _gif?.Stop();
+        }
 
         /// <summary>Free native Media Foundation / D3D resources held by the recorder.</summary>
         private void Release()

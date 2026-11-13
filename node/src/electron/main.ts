@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -11,8 +11,16 @@ import { addHistory, historyFile, loadHistory } from "../core/history.js";
 import { blurRegion, pixelate, sizeOf, stitch } from "../core/image-ops.js";
 import { loadSettings, saveSettings, setAutostart, migrateAutostart, type AppSettings } from "../core/settings.js";
 import { Recorder } from "../core/recorder.js";
+import { AudioRecorder } from "../core/audio-recorder.js";
+import { evenSize, isValidCapture, normalizeFps } from "../core/record-rect.js";
+import { canTrimPath, defaultOutputPath, isAudioPath, keepFromRemove } from "../core/trim-range.js";
+import { cut as ffmpegCut } from "../core/ffmpeg-cut.js";
 import { uploadFile } from "../core/uploaders.js";
 import { appRoot, ensureMigrated, userDataDir } from "../core/paths.js";
+import * as tempRec from "../core/temp-recordings.js";
+import { toSrt, toTxt, type TranscriptCue } from "../core/transcript.js";
+import { extractiveMarkdown } from "../core/summarize.js";
+import { findWhisper, LiveTranscribe } from "../core/live-transcribe.js";
 
 ensureMigrated();
 try {
@@ -46,6 +54,7 @@ const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Err
 let settings: AppSettings = loadSettings();
 let lastCapture: { png: Buffer; rect?: { x: number; y: number; w: number; h: number }; mode: string } | null = null;
 let recorder: Recorder | null = null;
+let audioRecorder: AudioRecorder | null = null;
 let timedTimer: NodeJS.Timeout | null = null;
 let timedLeft = 0;
 
@@ -173,6 +182,10 @@ function createTray(): void {
       { label: "公式 → LaTeX", click: () => startCapture("latex") },
       { label: "二维码", click: () => startCapture("qr") },
       { type: "separator" },
+      { label: "开始/停止录屏", click: () => void toggleRecord() },
+      { label: "录制音频…", click: () => openView("audio") },
+      { label: "仅转写（不保存音频）…", click: () => openView("audio", { live: "1" }) },
+      { type: "separator" },
       { label: "历史", click: () => openView("history") },
       { label: "设置", click: () => openView("settings") },
       { type: "separator" },
@@ -220,6 +233,9 @@ function openView(view: string, extra: Record<string, string> = {}, avoid?: Scre
     settings: "BestSnap Settings",
     stitch: "BestSnap Stitch",
     compare: "BestSnap Compare",
+    audio: "BestSnap Audio",
+    done: "BestSnap",
+    trim: "BestSnap Trim",
   };
   const w = frameless({
     width: view === "editor" ? 1100 : view === "result" ? 700 : 820,
@@ -554,6 +570,7 @@ function registerHotkeys(): void {
       else void startCapture("region");
     },
     Recorder: () => void toggleRecord(),
+    AudioRecorder: () => openView("audio"),
     OcrRegion: () => startCapture("ocr"),
     FormulaRegion: () => startCapture("latex"),
     PinRegion: () => startCapture("pin"),
@@ -581,26 +598,51 @@ function toAccel(g: string): string {
 async function toggleRecord(): Promise<void> {
   if (recorder) {
     await recorder.stop();
+    const file = lastRecordFile;
     recorder = null;
     toolbar?.webContents.send("recording", { on: false });
+    toolbar?.show();
+    if (file) {
+      try { tempRec.markComplete(file); } catch { /* ignore */ }
+      openView("done", { file });
+    }
     return;
   }
-  const folder = settings.recording.saveFolder || path.join(os.homedir(), "Videos", "BestSnap");
-  fs.mkdirSync(folder, { recursive: true });
+  const src = settings.recording.source || "Monitor";
+  if (!isDemo && src === "Region") {
+    await startCapture("record-region");
+    return;
+  }
+  if (!isDemo && src === "Window") {
+    await startCapture("record-window");
+    return;
+  }
+  await beginRecord(undefined);
+}
+
+let lastRecordFile = "";
+
+async function beginRecord(region?: { x: number; y: number; w: number; h: number }): Promise<void> {
+  toolbar?.hide();
+  const folder = tempRec.ensureFolder();
   const ext = settings.recording.format === "Gif" ? ".gif" : ".mp4";
-  const out = path.join(folder, `Rec_${Date.now()}${ext}`);
+  const out = tempRec.newMediaPath(folder, "Rec", ext);
+  lastRecordFile = out;
   recorder = new Recorder();
+  let r = region;
+  if (isDemo) r = { x: 36, y: 60, w: 640, h: 480 };
+  if (r) r = evenSize(r);
+  if (r && !isValidCapture(r)) throw new Error("recording region too small");
   await recorder.start({
     out,
-    fps: settings.recording.fps,
+    fps: normalizeFps(settings.recording.fps),
     quality: settings.recording.quality,
     showCursor: settings.recording.showCursor,
     gif: ext === ".gif",
     gifMaxWidth: settings.recording.gifMaxWidth,
     mic: settings.recording.microphone,
-    // Demo: grab a page region so the outer x11grab (the walkthrough video) is not
-    // competing with a second fullscreen grab that freezes the Xvfb picture.
-    region: isDemo ? { x: 36, y: 60, w: 640, h: 480 } : undefined,
+    systemAudio: settings.recording.systemAudio,
+    region: r,
   });
   toolbar?.webContents.send("recording", { on: true, file: out });
 }
@@ -778,6 +820,7 @@ process.on("unhandledRejection", (e) => console.error("unhandled", e));
 app.whenReady().then(async () => {
   console.log("BestSnap ready demo=", isDemo, "argv=", process.argv.join(" "));
   migrateAutostart();
+  try { tempRec.cleanup(tempRec.ensureFolder()); } catch { /* ignore */ }
   spawnWorker();
   if (isDemo) {
     prepareLiveDemo();
@@ -812,6 +855,12 @@ ipcMain.handle("overlay:painted", () => {
 });
 ipcMain.handle("capture:start", (_e, mode: string) => startCapture(mode));
 ipcMain.handle("capture:result", async (_e, payload: { file: string; x: number; y: number; w: number; h: number; mode: string; action?: string }) => {
+  if (payload.mode === "record-region" || payload.mode === "record-window") {
+    await closeOverlay();
+    await sleep(80);
+    await beginRecord({ x: payload.x, y: payload.y, w: payload.w, h: payload.h });
+    return;
+  }
   let png: Buffer;
   try {
     png = fs.readFileSync(payload.file);
@@ -861,6 +910,111 @@ ipcMain.handle("open:external", (_e, url: string) => {
 });
 ipcMain.handle("windows:list", () => listWindows());
 ipcMain.handle("record:toggle", () => toggleRecord());
+ipcMain.handle("record:audioTemp", async (_e, opts: { mic?: boolean; system?: boolean; format?: string }) => {
+  const folder = tempRec.ensureFolder();
+  const ext = opts.format === "Mp3" ? ".mp3" : ".wav";
+  const out = tempRec.newMediaPath(folder, "Audio", ext);
+  if (audioRecorder) await audioRecorder.stop();
+  audioRecorder = new AudioRecorder();
+  await audioRecorder.start({ out, mic: opts.mic, system: opts.system });
+  lastRecordFile = out;
+  return out;
+});
+ipcMain.handle("record:audioStart", async (_e, opts: { out: string; mic?: boolean; system?: boolean; micDevice?: string; systemDevice?: string }) => {
+  if (audioRecorder) await audioRecorder.stop();
+  audioRecorder = new AudioRecorder();
+  await audioRecorder.start(opts);
+  return opts.out;
+});
+ipcMain.handle("record:saveAs", async (_e, file: string) => {
+  if (!file || !fs.existsSync(file)) return null;
+  const r = await dialog.showSaveDialog({ defaultPath: path.join(settings.recording.saveFolder || os.homedir(), path.basename(file)) });
+  if (r.canceled || !r.filePath) return null;
+  fs.copyFileSync(file, r.filePath);
+  if (tempRec.isUnder(file, tempRec.folder()) && path.resolve(file) !== path.resolve(r.filePath)) tempRec.deletePair(file);
+  return r.filePath;
+});
+
+let liveSession: LiveTranscribe | null = null;
+ipcMain.handle("live:start", async (_e, opts: { mic?: boolean; system?: boolean }) => {
+  if (liveSession) await liveSession.stop();
+  liveSession = new LiveTranscribe();
+  await liveSession.start(opts);
+  toolbar?.webContents.send("recording", { on: true });
+  return true;
+});
+ipcMain.handle("live:pause", () => liveSession?.pause());
+ipcMain.handle("live:resume", () => liveSession?.resume());
+ipcMain.handle("live:stop", async () => {
+  const cues = liveSession ? await liveSession.stop() : [];
+  liveSession = null;
+  toolbar?.webContents.send("recording", { on: false });
+  return cues;
+});
+ipcMain.handle("transcript:txt", (_e, cues: TranscriptCue[]) => toTxt(cues || []));
+ipcMain.handle("transcript:srt", (_e, cues: TranscriptCue[]) => toSrt(cues || []));
+ipcMain.handle("transcript:summarize", (_e, cues: TranscriptCue[]) => extractiveMarkdown(cues || []));
+ipcMain.handle("transcript:save", async (_e, payload: { cues: TranscriptCue[]; ext: string }) => {
+  const body = payload.ext === ".srt" ? toSrt(payload.cues || []) : toTxt(payload.cues || []);
+  const r = await dialog.showSaveDialog({ defaultPath: path.join(os.homedir(), "transcript" + (payload.ext || ".txt")) });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, body);
+  return r.filePath;
+});
+ipcMain.handle("transcript:saveMd", async (_e, md: string) => {
+  const r = await dialog.showSaveDialog({ defaultPath: path.join(os.homedir(), "summary.md") });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, md || "");
+  return r.filePath;
+});
+ipcMain.handle("transcript:file", async (_e, file: string) => {
+  const bin = findWhisper();
+  if (!bin) throw new Error("未找到 whisper-cli。请安装 whisper.cpp 后重试；音频仅在本机处理。");
+  const wav = file + ".16k.wav";
+  await new Promise<void>((resolve, reject) => {
+    const p = spawn("ffmpeg", ["-y", "-i", file, "-ac", "1", "-ar", "16000", "-vn", wav], { stdio: ["ignore", "ignore", "pipe"] });
+    p.on("close", (c) => (c === 0 ? resolve() : reject(new Error("ffmpeg extract failed"))));
+  });
+  try {
+    const text = await new Promise<string>((resolve, reject) => {
+      const p = spawn(bin, ["-f", wav, "-nt"], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      p.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+      p.on("close", () => resolve(out));
+      p.on("error", reject);
+    });
+    const t = text.trim();
+    return t ? [{ start: 0, end: 1, text: t.replace(/\s+/g, " ") }] : [];
+  } finally {
+    try { fs.unlinkSync(wav); } catch { /* ignore */ }
+  }
+});
+ipcMain.handle("record:audioStop", async () => {
+  if (!audioRecorder) return null;
+  await audioRecorder.stop();
+  audioRecorder = null;
+  return true;
+});
+ipcMain.handle("record:audioPause", () => audioRecorder?.pause());
+ipcMain.handle("record:audioResume", () => audioRecorder?.resume());
+ipcMain.handle("trim:plan", (_e, original: string) => ({
+  canTrim: canTrimPath(original),
+  audio: isAudioPath(original),
+  out: defaultOutputPath(original),
+}));
+ipcMain.handle("trim:keep", (_e, payload: { duration: number; remove: { start: number; end: number }[] }) =>
+  keepFromRemove(payload.duration || 0, payload.remove || []),
+);
+ipcMain.handle("trim:cut", async (_e, payload: { input: string; output: string; keep: { start: number; end: number }[]; video: boolean; audio: boolean; overwrite?: boolean }) => {
+  const input = path.resolve(payload.input);
+  const output = path.resolve(payload.output);
+  if (input === output && !payload.overwrite) throw new Error("overwrite-confirm");
+  if (fs.existsSync(output) && !payload.overwrite) throw new Error("exists-confirm");
+  await ffmpegCut(payload.input, payload.output, payload.keep, payload.video, payload.audio);
+  return payload.output;
+});
+ipcMain.handle("shell:show", (_e, file: string) => shell.showItemInFolder(file));
+ipcMain.handle("shell:open", (_e, file: string) => shell.openPath(file));
 ipcMain.handle("fx:pixelate", (_e, file: string, x: number, y: number, w: number, h: number) => pixelate(fs.readFileSync(file), x, y, w, h));
 ipcMain.handle("fx:blur", (_e, file: string, x: number, y: number, w: number, h: number) => blurRegion(fs.readFileSync(file), x, y, w, h));
 ipcMain.handle("stitch", async (_e, files: string[], vertical: boolean) => {
@@ -880,8 +1034,8 @@ ipcMain.handle("demo:file", (_e, rel: string) => {
   return fs.readFileSync(p).toString("base64");
 });
 ipcMain.handle("demo:path", (_e, rel: string) => path.join(appRoot(), "demo", rel));
-ipcMain.handle("view:open", (_e, view: string) => {
-  openView(view);
+ipcMain.handle("view:open", (_e, view: string, extra?: Record<string, string>) => {
+  openView(view, extra || {});
 });
 ipcMain.handle("result:show", (_e, payload: { kind: string; text: string }) => {
   openResult(payload.kind, payload.text);

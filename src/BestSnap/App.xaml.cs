@@ -58,9 +58,19 @@ namespace BestSnap
             }
             catch { }
             bool cli = CliOptions.IsCommand(e.Args);
+            bool transcribeTest = TranscribeTestArgs.LooksLike(e.Args);
             _mutex = new Mutex(true, MutexName, out _ownsMutex);
             if (cli)
             {
+                if (transcribeTest)
+                {
+                    // Headless self-test: never forward to the GUI instance; attach a console.
+                    if (_ownsMutex) { try { _mutex.ReleaseMutex(); } catch { } _ownsMutex = false; }
+                    IsCliOnly = true;
+                    CliConsole.Ensure();
+                    RunCliOnly(e.Args);
+                    return;
+                }
                 if (!_ownsMutex)
                 {
                     // Forward to the running instance over the named pipe and return its exit code.
@@ -129,6 +139,7 @@ namespace BestSnap
         private static bool ShouldExclude(Window w) => AppIdentity.GetEnv("SHOW_IN_CAPTURE") != "1" && !IsRecordedOverlay(w) && (
             w is Views.CaptureToolbar || w is Views.RecordingControlBar || w is Views.CountdownWindow ||
             w is Views.MagnifierWindow || w is Views.SelectionOverlay || w is Views.ScrollCaptureWindow || w is Views.RegionBorderWindow || w is Views.QuickActionBar ||
+            w is Views.AudioRecorderWindow || w is Views.RecordingDoneWindow || w is Views.LiveCaptionWindow ||
             (Settings?.Current?.ExcludeAppWindowsFromCapture ?? true));
 
         static void OnUiException(object o, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs a)
