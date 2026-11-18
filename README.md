@@ -14,8 +14,8 @@
 
 ### 功能
 
-- 📸 **截图**：框选区域、窗口、全屏；常驻顶部工具栏，一点就用
-- ✏️ **标注**：箭头、矩形、文字，复制或保存 PNG
+- 📸 **截图**：框选区域、窗口、全屏、**滚动截图**（工具栏按钮 / `Ctrl+Alt+PrintScreen`：点窗口或拖选区域内自动向下滚并拼接长图）
+- ✏️ **标注**：箭头、矩形、**画笔 (P)**、**荧光笔 (H)**、文字；颜色/线宽会记住；复制或保存 PNG
 - 🔤 **OCR 文字识别**：中英文混排一键提取文字（PP-OCRv4）
 - ∑ **公式转 LaTeX**：截一下公式，直接得到 LaTeX 代码并实时渲染预览
 - 🔳 **二维码 / 条码识别**：框一下，链接马上出来
@@ -75,8 +75,8 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
 
 ### Features
 
-- 📸 **Capture** a region, a window or the full screen from an always-on top toolbar
-- ✏️ **Annotate** with arrows, rectangles and text; copy or save as PNG
+- 📸 **Capture** a region, a window, the full screen, or a **scrolling capture** (toolbar button / `Ctrl+Alt+PrintScreen`: click a window or drag a region, then auto-scroll and stitch)
+- ✏️ **Annotate** with arrows, rectangles, **pen (P)**, **highlighter (H)**, and text; last color/thickness is remembered; copy or save as PNG
 - 🔤 **OCR**: extract mixed Chinese/English text (PP-OCRv4)
 - ∑ **Formula → LaTeX**: snip an equation and get LaTeX code with a live preview
 - 🔳 **QR / barcode** decoding

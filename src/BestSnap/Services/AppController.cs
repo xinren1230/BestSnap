@@ -133,11 +133,7 @@ namespace BestSnap.Services
                     case CaptureMode.FullScreen: img = CaptureService.CaptureFullScreen(S.IncludeCursor); break;
                     case CaptureMode.ActiveWindow: { var h = WindowEnumerator.ResolveTargetWindow(); img = CaptureService.CaptureWindow(h, S.IncludeCursor); abs = WinRect(h); } break;
                     case CaptureMode.Scrolling:
-                        Notify(L.T("请在 2 秒内把鼠标移到要滚动的窗口内容上，开始后可在右下角面板点“完成”…"));
-                        await Task.Delay(2000);
-                        NativeMethods.GetCursorPos(out var p);
-                        var hw = NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(p), NativeMethods.GA_ROOT);
-                        img = await ScrollCaptureService.CaptureAsync(hw);
+                        img = await ScrollCaptureService.CaptureAsync();
                         break;
                     default:
                         var kind = mode == CaptureMode.WindowObject ? SelectionKind.WindowObject
@@ -277,7 +273,7 @@ namespace BestSnap.Services
             Add(L.T("矩形区域"), () => Capture(CaptureMode.Region));
             Add(L.T("手绘区域"), () => Capture(CaptureMode.Freehand));
             Add(L.T("固定大小区域"), () => Capture(CaptureMode.FixedRegion));
-            Add(L.T("滚动窗口"), () => Capture(CaptureMode.Scrolling));
+            Add(L.T("滚动截图"), () => Capture(CaptureMode.Scrolling));
             Add(L.T("重复上次截图"), RepeatLast);
             m.Items.Add(new WinForms.ToolStripSeparator());
             Add(L.T("截图并钉到桌面"), PinRegion);

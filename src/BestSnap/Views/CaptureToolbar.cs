@@ -53,6 +53,7 @@ namespace BestSnap.Views
             Btn("\uE7A8", L.T("矩形区域截图") + SmartUi.Key("Region"), () => ctl.Capture(CaptureMode.Region));
             Btn("\uE8B3", L.T("截取窗口/对象") + SmartUi.Key("WindowObject"), () => ctl.Capture(CaptureMode.WindowObject));
             Btn("\uE740", L.T("全屏截图") + SmartUi.Key("FullScreen"), () => ctl.Capture(CaptureMode.FullScreen));
+            Btn(SmartUi.GScroll, L.T("滚动截图") + SmartUi.Key("Scrolling"), () => ctl.Capture(CaptureMode.Scrolling));
             Button recBtn = null;
             recBtn = Btn("\uE7C8", L.T("开始/停止录屏") + SmartUi.Key("Recorder"), () =>
             {
@@ -106,7 +107,7 @@ namespace BestSnap.Views
             Item("截取活动窗口", () => _ctl.Capture(CaptureMode.ActiveWindow), "ActiveWindow");
             Item("手绘区域截图", () => _ctl.Capture(CaptureMode.Freehand), "Freehand");
             Item("固定大小区域截图", () => _ctl.Capture(CaptureMode.FixedRegion), "FixedRegion");
-            Item("滚动窗口截图", () => _ctl.Capture(CaptureMode.Scrolling), "Scrolling");
+            Item("滚动截图", () => _ctl.Capture(CaptureMode.Scrolling), "Scrolling");
             Item("重复上次截图", _ctl.RepeatLast, "RepeatLast");
 
             var delayRoot = new MenuItem { Header = L.T("截图延时(秒)") };

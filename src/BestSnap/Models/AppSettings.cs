@@ -155,6 +155,10 @@ namespace BestSnap.Models
         public bool AutoTranscribeAudioAfterStop { get; set; } = true;
         /// <summary>User has been told that a configured LLM will send transcript text to the network.</summary>
         public bool SummarizeNetworkConsent { get; set; }
+        /// <summary>Last editor pen color (ARGB). Thickness is in image pixels.</summary>
+        public int EditorPenArgb { get; set; } = unchecked((int)0xFFFF0000);
+        public double EditorPenThickness { get; set; } = 4;
+        public double EditorHighlighterThickness { get; set; } = 16;
         public WatermarkSettings Watermark { get; set; } = new WatermarkSettings();
         public List<UploadTarget> UploadTargets { get; set; } = new List<UploadTarget>();
         public List<HotkeyBinding> Hotkeys { get; set; } = new List<HotkeyBinding>

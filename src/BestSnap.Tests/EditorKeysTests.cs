@@ -48,9 +48,18 @@ namespace BestSnap.Tests
         }
 
         [Fact]
+        public void LetterShortcut_PenAndHighlighterWhenIdle()
+        {
+            Assert.True(EditorKeys.AllowLetterShortcut(false, false, "P"));
+            Assert.True(EditorKeys.AllowLetterShortcut(false, false, "H"));
+            Assert.Equal("Pen", EditorKeys.ToolForKey("p"));
+            Assert.Equal("Highlighter", EditorKeys.ToolForKey("H"));
+        }
+
+        [Fact]
         public void LetterShortcut_OtherLettersNeverFire()
         {
-            foreach (var k in new[] { "A", "R", "T", "S", "H", "Z", "C", "Delete", "Escape", "Space" })
+            foreach (var k in new[] { "A", "R", "T", "S", "Z", "C", "Delete", "Escape", "Space" })
                 Assert.False(EditorKeys.AllowLetterShortcut(false, false, k));
         }
     }

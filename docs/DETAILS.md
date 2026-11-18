@@ -22,7 +22,7 @@ dotnet publish src/BestSnap -c Release -r win-x64 --self-contained false -o publ
 
 启动后会在屏幕顶部显示**浮动截图工具栏**（无边框、置顶、可拖动左侧 Logo 移动，位置自动记忆），同时驻留系统托盘：右键托盘图标打开菜单（含“显示/隐藏工具栏”），左键托盘图标显示/还原工具栏。工具栏最右侧为最小化到托盘；设置中可关闭“启动时显示截图工具栏”。
 
-主工具栏按钮：矩形区域、窗口/对象、全屏、录屏、**更多**、最小化。OCR、公式 → LaTeX、延时、手绘、滚动、取色、放大镜、标尺、历史、设置等在 **更多** 菜单（热键仍可用）。图标使用 Windows 自带的 Segoe Fluent Icons / Segoe MDL2 Assets 字体。
+主工具栏按钮：矩形区域、窗口/对象、全屏、**滚动截图**、录屏、**更多**、最小化。OCR、公式 → LaTeX、延时、手绘、取色、放大镜、标尺、历史、设置等在 **更多** 菜单（热键仍可用）。图标使用 Windows 自带的 Segoe Fluent Icons / Segoe MDL2 Assets 字体。
 
 ## Logo
 原创 Logo（渐变圆角方块 + 白色取景框 + 镜头 + 黄色星芒），源文件 `src/BestSnap/Assets/bestsnap_logo.svg`，由 Python cairosvg/Pillow 生成 16–256 PNG 和多尺寸 `bestsnap.ico`，用作 exe 图标、托盘图标（嵌入资源）、所有窗口图标和工具栏 Logo。
@@ -36,7 +36,7 @@ dotnet publish src/BestSnap -c Release -r win-x64 --self-contained false -o publ
 | 矩形区域 | Ctrl+PrintScreen |
 | 手绘区域 | Ctrl+Shift+F |
 | 固定大小区域 | Ctrl+Shift+X |
-| 滚动窗口 | Ctrl+Alt+PrintScreen |
+| 滚动截图 | Ctrl+Alt+PrintScreen |
 | 重复上次截图 | Ctrl+Shift+R |
 | 开始/停止录屏 | Ctrl+Shift+V |
 | 识别文字 (OCR) | Ctrl+Shift+O |
@@ -71,11 +71,12 @@ ScreenRecorderLib.dll 和 Ijwhost.dll 是混合模式程序集，csproj 中的 `
 | 矩形区域 | ✅ 完整 | 冻结屏幕后拖选，显示尺寸和放大预览 |
 | 手绘区域 | ✅ 完整 | 多边形外部透明（建议存 PNG） |
 | 固定大小区域 | ✅ 完整 | 尺寸在设置中配置 |
-| 滚动窗口 | ⚠️ 部分 | 发送滚轮消息+逐帧比对拼接；对普通网页/文档有效，对自绘或硬件加速应用（部分 Chrome/Electron 页面、有悬浮工具栏的页面）可能失败或出现拼缝 |
+| 滚动截图 | ✅ 完整 | 工具栏按钮 / 托盘 / `Ctrl+Alt+PrintScreen`。单击窗口或拖选区域内区域；自动 SendInput + WM_MOUSEWHEEL（失败则 PageDown）；中央带重叠匹配，忽略粘性页眉/页脚；内容不变、Esc、停止按钮或 30000 px 结束。完成图进编辑器 |
 | 重复上次截图 | ✅ 完整 | 区域类模式重复同一坐标，其他模式重跑同一模式 |
 | 延时截图 | ✅ 完整 | 0–60 秒 |
 | 包含鼠标指针 | ⚠️ 部分 | 总是绘制标准箭头，不是当前实际光标形状 |
 | 编辑器：箭头/直线/矩形/椭圆/文字/高亮 | ✅ 完整 | 8 色调色板、线宽可选 |
+| 编辑器：画笔 / 荧光笔 | ✅ 完整 | 主工具栏；P / H；色板+自定义颜色；线宽 2/4/8（荧光笔更粗半透明）；Ctrl+Z 撤销；记住上次颜色和线宽；复制/保存按图像像素烧进位图 |
 | 编辑器：马赛克/模糊 | ✅ 完整 | |
 | 编辑器：裁剪/调整大小/缩放/撤销重做 | ✅ 完整 | 撤销 50 步；Ctrl+滚轮缩放 |
 | 编辑器：已画标注再次选中修改 | ✅ 完整 | 矢量对象：选择工具可再选中、拖动、改颜色/线宽、Delete；复制/保存时才画进位图 |

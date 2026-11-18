@@ -15,7 +15,7 @@ using BestSnap.ViewModels;
 
 namespace BestSnap.Views
 {
-    public enum EditorTool { Select, Arrow, Line, Rectangle, Ellipse, Text, Highlight, Step, Pen, Spotlight, Pixelate, Blur, Crop, Eyedropper, Eraser }
+    public enum EditorTool { Select, Arrow, Line, Rectangle, Ellipse, Text, Highlight, Highlighter, Step, Pen, Spotlight, Pixelate, Blur, Crop, Eyedropper, Eraser }
 
     /// <summary>Draws the editable annotations, the in-progress draft and the selection frame above the bitmap.</summary>
     internal class AnnotationLayer : FrameworkElement
@@ -108,6 +108,7 @@ namespace BestSnap.Views
         public EditorWindow(BitmapSource img, SettingsService settings)
         {
             _doc = new EditorDocument(img); _settings = settings;
+            LoadPenStyle();
             Title = L.T("BestSnap 编辑器");
             double workW = SystemParameters.WorkArea.Width, workH = SystemParameters.WorkArea.Height;
             MinWidth = 760; MinHeight = 400; WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -162,7 +163,7 @@ namespace BestSnap.Views
                 e.Target = null;
             }), true);
             Deactivated += (s, e) => ReleasePointer();
-            Closed += (s, e) => ReleasePointer();
+            Closed += (s, e) => { PersistPenStyle(); try { _settings.Save(); } catch { } ReleasePointer(); };
         }
 
         private UIElement BuildToolbar()
@@ -198,6 +199,8 @@ namespace BestSnap.Views
             Sep();
             Tool(EditorTool.Arrow, SmartUi.GArrow, L.T("箭头"));
             Tool(EditorTool.Rectangle, SmartUi.GRect, L.T("矩形"));
+            Tool(EditorTool.Pen, SmartUi.GPen, L.T("画笔"), L.T("自由手绘 (P)"));
+            Tool(EditorTool.Highlighter, SmartUi.GHighlight, L.T("荧光笔"), L.T("半透明粗笔 (H)"));
             Tool(EditorTool.Text, SmartUi.GText, L.T("文字"));
             Tool(EditorTool.Pixelate, SmartUi.GBlur, L.T("马赛克"), L.T("模糊/打码"));
             Tool(EditorTool.Eraser, SmartUi.GEraser, L.T("擦除"), L.T("拖动画笔覆盖截图像素 (E)"));
@@ -227,9 +230,8 @@ namespace BestSnap.Views
             MenuTool(EditorTool.Select, L.T("选择"), L.T("选择/移动标注；Delete 删除；双击文字/序号可修改；选中后改颜色/线宽/字体即生效"));
             MenuTool(EditorTool.Line, L.T("直线"));
             MenuTool(EditorTool.Ellipse, L.T("椭圆"));
-            MenuTool(EditorTool.Highlight, L.T("高亮"));
+            MenuTool(EditorTool.Highlight, L.T("高亮矩形"));
             MenuTool(EditorTool.Step, L.T("序号"), L.T("单击放置自动递增的步骤序号"));
-            MenuTool(EditorTool.Pen, L.T("画笔"), L.T("自由手绘"));
             MenuTool(EditorTool.Spotlight, L.T("聚光灯"), L.T("框选要突出的区域，其余部分变暗"));
             MenuTool(EditorTool.Blur, L.T("模糊"));
             MenuTool(EditorTool.Eyedropper, L.T("取色"), L.T("从图片取颜色作为当前颜色（并复制色值）"));
@@ -274,13 +276,12 @@ namespace BestSnap.Views
             var style = new WrapPanel { Orientation = Orientation.Horizontal };
             _styleLabel = new TextBlock { Text = L.T("颜色和线宽"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 8, 0), Foreground = Brushes.Gray, FontSize = 11 };
             style.Children.Add(_styleLabel);
-            _colorBtn = new Button { Width = 28, Height = 28, Background = new SolidColorBrush(_color), ToolTip = L.T("颜色（单击切换）"), Margin = new Thickness(2), BorderThickness = new Thickness(0), Style = SmartUi.ButtonStyle(false) };
+            _colorBtn = new Button { Width = 28, Height = 28, Background = new SolidColorBrush(_color), ToolTip = L.T("颜色（单击选色）"), Margin = new Thickness(2), BorderThickness = new Thickness(0), Style = SmartUi.ButtonStyle(false) };
             var palette = new[] { Colors.Red, Colors.Orange, Colors.Gold, Colors.LimeGreen, Colors.DodgerBlue, Colors.MediumPurple, Colors.Black, Colors.White };
-            int ci = 0;
-            _colorBtn.Click += (s, e) => { ci = (ci + 1) % palette.Length; _color = palette[ci]; _colorBtn.Background = new SolidColorBrush(_color); ApplyStyleToSelection(); };
+            _colorBtn.Click += (s, e) => OpenColorPicker(palette);
             style.Children.Add(_colorBtn);
-            _thickBox = new ComboBox { Width = 50, ItemsSource = new double[] { 1, 2, 3, 5, 8, 12 }, SelectedItem = 3.0, ToolTip = L.T("线宽 / 字号"), Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
-            _thickBox.SelectionChanged += (s, e) => { if (_thickBox.SelectedItem is double d) { _thickness = d; ApplyStyleToSelection(); } };
+            _thickBox = new ComboBox { Width = 50, ItemsSource = new double[] { 1, 2, 3, 4, 5, 8, 12, 16 }, SelectedItem = 4.0, ToolTip = L.T("线宽 / 字号"), Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+            _thickBox.SelectionChanged += (s, e) => { if (_thickBox.SelectedItem is double d) { _thickness = d; PersistPenStyle(); ApplyStyleToSelection(); } };
             style.Children.Add(_thickBox);
             _eraserSlider = new Slider { Width = 120, Minimum = 4, Maximum = 64, Value = 16, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), ToolTip = L.T("擦除大小"), Visibility = Visibility.Collapsed };
             _eraserSlider.ValueChanged += (s, e) => { _eraserSize = _eraserSlider.Value; if (_eraserSizeText != null) _eraserSizeText.Text = ((int)_eraserSize).ToString(); _layer.BrushRadius = _eraserSize / 2; _layer.InvalidateVisual(); };
@@ -349,7 +350,7 @@ namespace BestSnap.Views
 
         private static bool IsDrawingTool(EditorTool t) =>
             t == EditorTool.Arrow || t == EditorTool.Line || t == EditorTool.Rectangle || t == EditorTool.Ellipse
-            || t == EditorTool.Text || t == EditorTool.Highlight || t == EditorTool.Step || t == EditorTool.Pen
+            || t == EditorTool.Text || t == EditorTool.Highlight || t == EditorTool.Highlighter || t == EditorTool.Step || t == EditorTool.Pen
             || t == EditorTool.Spotlight || t == EditorTool.Pixelate || t == EditorTool.Blur;
 
         private void UpdateStyleBar()
@@ -411,9 +412,88 @@ namespace BestSnap.Views
             foreach (var kv in _toolButtons) kv.Value.IsChecked = kv.Key == t;
             foreach (var kv in _toolMenuItems) kv.Value.IsChecked = kv.Key == t;
             if (t != EditorTool.Select) Select(null);
+            if (t == EditorTool.Pen && _settings.Current.EditorPenThickness > 0)
+                SyncThickness(_settings.Current.EditorPenThickness);
+            else if (t == EditorTool.Highlighter && _settings.Current.EditorHighlighterThickness > 0)
+                SyncThickness(_settings.Current.EditorHighlighterThickness);
             UpdateStyleBar();
             UpdateEraserCursor();
             UpdateStatus();
+        }
+
+        void LoadPenStyle()
+        {
+            var s = _settings.Current;
+            _color = ColorFromArgb(s.EditorPenArgb);
+            if (_color.A == 0) _color = Colors.Red;
+            _thickness = s.EditorPenThickness > 0 ? s.EditorPenThickness : 4;
+        }
+
+        void PersistPenStyle()
+        {
+            if (_settings?.Current == null) return;
+            var s = _settings.Current;
+            s.EditorPenArgb = (_color.A << 24) | (_color.R << 16) | (_color.G << 8) | _color.B;
+            if (_tool == EditorTool.Pen) s.EditorPenThickness = _thickness;
+            else if (_tool == EditorTool.Highlighter) s.EditorHighlighterThickness = _thickness;
+        }
+
+        void SyncThickness(double t)
+        {
+            _thickness = t;
+            if (_thickBox == null) return;
+            var src = _thickBox.ItemsSource as double[];
+            _syncingStyle = true;
+            _thickBox.SelectedItem = src != null && Array.IndexOf(src, t) >= 0 ? (object)t : null;
+            _syncingStyle = false;
+        }
+
+        static Color ColorFromArgb(int v)
+        {
+            unchecked { return Color.FromArgb((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v); }
+        }
+
+        void SetColor(Color c)
+        {
+            _color = c; _colorBtn.Background = new SolidColorBrush(_color);
+            PersistPenStyle(); ApplyStyleToSelection();
+        }
+
+        void OpenColorPicker(Color[] palette)
+        {
+            var pop = new Popup { PlacementTarget = _colorBtn, Placement = PlacementMode.Bottom, StaysOpen = false };
+            var wrap = new WrapPanel { Width = 152, Margin = new Thickness(6) };
+            foreach (var c in palette)
+            {
+                var sw = new Border
+                {
+                    Width = 28, Height = 28, Margin = new Thickness(2), Cursor = Cursors.Hand, BorderThickness = new Thickness(1),
+                    BorderBrush = Brushes.Gray, Background = new SolidColorBrush(c)
+                };
+                var pick = c;
+                sw.MouseLeftButtonDown += (o, ev) => { SetColor(pick); pop.IsOpen = false; };
+                wrap.Children.Add(sw);
+            }
+            var more = new Button { Content = L.T("自定义…"), Margin = new Thickness(6, 0, 6, 6), Height = 28 };
+            more.Click += (o, ev) =>
+            {
+                pop.IsOpen = false;
+                using var dlg = new System.Windows.Forms.ColorDialog
+                {
+                    Color = System.Drawing.Color.FromArgb(_color.A, _color.R, _color.G, _color.B),
+                    FullOpen = true
+                };
+                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    SetColor(Color.FromArgb(dlg.Color.A, dlg.Color.R, dlg.Color.G, dlg.Color.B));
+            };
+            var box = new StackPanel();
+            box.Children.Add(wrap); box.Children.Add(more);
+            pop.Child = new Border
+            {
+                Background = SmartUi.LightBarBackground, BorderBrush = SmartUi.LightBarBorder, BorderThickness = new Thickness(1),
+                Child = box, Padding = new Thickness(2)
+            };
+            pop.IsOpen = true;
         }
 
         private void UpdateEraserCursor()
@@ -586,7 +666,10 @@ namespace BestSnap.Views
             bool mods = Keyboard.Modifiers != ModifierKeys.None;
             if (EditorKeys.AllowLetterShortcut(typing || _wmOpen, mods, key.ToString()))
             {
-                SelectTool(EditorTool.Eraser);
+                var name = EditorKeys.ToolForKey(key.ToString());
+                if (name == "Pen") SelectTool(EditorTool.Pen);
+                else if (name == "Highlighter") SelectTool(EditorTool.Highlighter);
+                else SelectTool(EditorTool.Eraser);
                 e.Handled = true;
                 return;
             }
@@ -631,7 +714,8 @@ namespace BestSnap.Views
         {
             EditorTool.Arrow => AnnotationKind.Arrow, EditorTool.Line => AnnotationKind.Line, EditorTool.Rectangle => AnnotationKind.Rectangle,
             EditorTool.Ellipse => AnnotationKind.Ellipse, EditorTool.Highlight => AnnotationKind.Highlight,
-            EditorTool.Pen => AnnotationKind.Pen, EditorTool.Spotlight => AnnotationKind.Spotlight, _ => (AnnotationKind?)null
+            EditorTool.Pen => AnnotationKind.Pen, EditorTool.Highlighter => AnnotationKind.Pen,
+            EditorTool.Spotlight => AnnotationKind.Spotlight, _ => (AnnotationKind?)null
         };
 
         private Annotation HitAnnotation(Point p)
@@ -720,7 +804,13 @@ namespace BestSnap.Views
             }
             _dragging = true; _canvas.CaptureMouse();
             var k = KindFor(_tool);
-            if (k.HasValue) { _layer.Draft = new Annotation { Kind = k.Value, A = _start, B = _start, Color = _color, Thickness = _thickness }; if (k == AnnotationKind.Pen) _layer.Draft.Points.Add(_start); }
+            if (k.HasValue)
+            {
+                var col = _tool == EditorTool.Highlighter ? Color.FromArgb(96, _color.R, _color.G, _color.B) : _color;
+                var thick = _tool == EditorTool.Highlighter ? Math.Max(8, _thickness) : _thickness;
+                _layer.Draft = new Annotation { Kind = k.Value, A = _start, B = _start, Color = col, Thickness = thick };
+                if (k == AnnotationKind.Pen) _layer.Draft.Points.Add(_start);
+            }
             else _layer.DraftRect = new Rect(_start, _start);
             _layer.InvalidateVisual();
         }
@@ -781,6 +871,8 @@ namespace BestSnap.Views
                 if (draft.Kind == AnnotationKind.Spotlight || draft.Kind == AnnotationKind.Rectangle || draft.Kind == AnnotationKind.Ellipse || draft.Kind == AnnotationKind.Highlight || draft.Kind == AnnotationKind.EraseRect)
                 { var rr = new Rect(draft.A, draft.B); draft.A = rr.TopLeft; draft.B = rr.BottomRight; } // normalise
                 if (draft.Kind == AnnotationKind.EraseRect && (Math.Abs(draft.B.X - draft.A.X) < 1 || Math.Abs(draft.B.Y - draft.A.Y) < 1)) return;
+                if (draft.Kind == AnnotationKind.Pen && draft.Points.Count >= 3)
+                    draft.Points = SmoothStroke(draft.Points);
                 _doc.Execute(new AddAnnotationCommand(draft)); return;
             }
 
@@ -805,6 +897,20 @@ namespace BestSnap.Views
         }
 
         private void CancelDraft() { _layer.Draft = null; _layer.DraftRect = null; _dragging = false; _layer.InvalidateVisual(); }
+
+        static List<Point> SmoothStroke(List<Point> p)
+        {
+            var o = new List<Point>(p.Count * 2);
+            o.Add(p[0]);
+            for (int i = 0; i < p.Count - 1; i++)
+            {
+                var a = p[i]; var b = p[i + 1];
+                o.Add(new Point(0.75 * a.X + 0.25 * b.X, 0.75 * a.Y + 0.25 * b.Y));
+                o.Add(new Point(0.25 * a.X + 0.75 * b.X, 0.25 * a.Y + 0.75 * b.Y));
+            }
+            o.Add(p[p.Count - 1]);
+            return o;
+        }
 
         private void AddText(Point p)
         {
