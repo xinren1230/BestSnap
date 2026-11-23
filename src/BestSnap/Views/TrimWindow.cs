@@ -23,6 +23,7 @@ namespace BestSnap.Views
         readonly string _file;
         readonly Action<string> _onApplied;
         readonly bool _audio;
+        readonly bool _protectOriginal;
         readonly MediaElement _media = new MediaElement { LoadedBehavior = MediaState.Manual, UnloadedBehavior = MediaState.Close, ScrubbingEnabled = true };
         readonly Slider _pos = new Slider { Minimum = 0, Maximum = 1 };
         readonly Canvas _wave = new Canvas { Height = 72, Background = new SolidColorBrush(Color.FromRgb(30, 30, 36)), ClipToBounds = true };
@@ -35,10 +36,11 @@ namespace BestSnap.Views
         bool _seeking, _playing, _dragging;
         double _dragA;
 
-        public TrimWindow(string file, Action<string> onApplied = null)
+        public TrimWindow(string file, Action<string> onApplied = null, bool protectOriginal = false)
         {
             _file = file;
             _onApplied = onApplied;
+            _protectOriginal = protectOriginal;
             _audio = TrimRangeMath.IsAudioPath(file);
             Title = L.T("剪辑") + " - " + IOPath.GetFileName(file);
             Width = 960; Height = _audio ? 520 : 680; WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -83,7 +85,9 @@ namespace BestSnap.Views
             var btns = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
             var left = new StackPanel { Orientation = Orientation.Horizontal };
             export.Margin = replace.Margin = folder.Margin = stt.Margin = new Thickness(0, 0, 8, 0);
-            left.Children.Add(export); left.Children.Add(replace); left.Children.Add(folder); left.Children.Add(stt); left.Children.Add(_info);
+            left.Children.Add(export);
+            if (!_protectOriginal) left.Children.Add(replace);
+            left.Children.Add(folder); left.Children.Add(stt); left.Children.Add(_info);
             btns.Children.Add(left);
             Grid.SetRow(btns, 6); grid.Children.Add(btns);
 
@@ -304,6 +308,11 @@ namespace BestSnap.Views
         {
             var keep = Keep();
             if (keep.Count == 0) { MessageBox.Show(this, L.T("没有可保留的片段。"), AppIdentity.Name); return; }
+            if (_protectOriginal && (overwrite || RecordingSavePath.WouldOverwriteOriginal(_file, output)))
+            {
+                MessageBox.Show(this, L.T("已保存的原片不会被覆盖。请导出为新文件。"), AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
             if (!overwrite && string.Equals(IOPath.GetFullPath(output), IOPath.GetFullPath(_file), StringComparison.OrdinalIgnoreCase))
             {
                 if (MessageBox.Show(this, L.T("确定用剪辑后的文件覆盖原文件吗？"), AppIdentity.Name, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)

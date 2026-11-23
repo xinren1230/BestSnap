@@ -34,6 +34,7 @@ namespace BestSnap.Services
         public event Action Started;
         public bool HasStarted { get; private set; }
         public event Action<string> Failed;
+        bool _stopWhenStarted;
 
         public static List<(string Device, string Name)> GetMonitors()
         {
@@ -184,6 +185,7 @@ namespace BestSnap.Services
             }
             Release();
             _gif = null;
+            _stopWhenStarted = false;
             Logger.Info("Recorder session Starting cycle=" + _session.Cycle);
             HasStarted = false;
             try
@@ -288,7 +290,18 @@ namespace BestSnap.Services
             {
                 Logger.Info("Recorder: status " + e.Status);
                 if (e.Status == RecorderStatus.Recording)
-                    ui.BeginInvoke(new Action(() => { if (!ReferenceEquals(_rec, rec) || HasStarted) return; HasStarted = true; Started?.Invoke(); }));
+                    ui.BeginInvoke(new Action(() =>
+                    {
+                        if (!ReferenceEquals(_rec, rec) || HasStarted) return;
+                        HasStarted = true;
+                        Started?.Invoke();
+                        if (_stopWhenStarted && ReferenceEquals(_rec, rec))
+                        {
+                            _stopWhenStarted = false;
+                            Logger.Info("Recorder deferred stop after encoder started");
+                            try { rec.Stop(); } catch (Exception ex) { Logger.Error("Recorder.DeferredStop", ex); }
+                        }
+                    }));
             };
             rec.OnRecordingComplete += (s, e) =>
             {
@@ -429,6 +442,13 @@ namespace BestSnap.Services
                 Logger.Info("Recorder stop leftover (" + why + ")");
             }
             Logger.Info("Recorder session Stopping cycle=" + _session.Cycle);
+            if (RecorderFailure.ShouldDeferStop(HasStarted, IsRecording) && _rec != null)
+            {
+                _stopWhenStarted = true;
+                Logger.Info("Recorder stop deferred until encoder started (avoid MF_E_UNEXPECTED 0xc00d36bb)");
+                return;
+            }
+            _stopWhenStarted = false;
             _rec?.Stop();
             _gif?.Stop();
         }
@@ -436,6 +456,7 @@ namespace BestSnap.Services
         /// <summary>Free native Media Foundation / D3D resources held by the recorder.</summary>
         private void Release()
         {
+            _stopWhenStarted = false;
             var r = _rec; _rec = null;
             try { r?.Dispose(); } catch (Exception ex) { Logger.Error("Recorder.Dispose", ex); }
         }

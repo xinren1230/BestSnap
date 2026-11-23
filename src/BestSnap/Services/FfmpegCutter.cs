@@ -156,5 +156,17 @@ namespace BestSnap.Services
             try { Process.Start(new ProcessStartInfo(file) { UseShellExecute = true }); }
             catch (Exception ex) { Logger.Error("OpenFile", ex); }
         }
+
+        public static void OpenFolder(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return;
+            Directory.CreateDirectory(dir);
+            try { Process.Start(new ProcessStartInfo { FileName = dir, UseShellExecute = true }); }
+            catch (Exception ex)
+            {
+                try { Process.Start("explorer.exe", dir); }
+                catch { Logger.Error("OpenFolder", ex); }
+            }
+        }
     }
 }

@@ -36,6 +36,37 @@ namespace BestSnap.Plugins
             catch { return false; }
         }
 
+        /// <summary>True when <paramref name="path"/> lives under a temp/recordings directory (in-progress takes only).</summary>
+        public static bool IsTempRecordingPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            try
+            {
+                if (IsUnder(path, AppPaths.TempRecordings)) return true;
+                var parts = Path.GetFullPath(path).Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < parts.Length - 1; i++)
+                {
+                    if (parts[i].Equals("temp", StringComparison.OrdinalIgnoreCase)
+                        && parts[i + 1].Equals("recordings", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>Removes a missing or 0-byte temp take (and sidecar). Never touches files outside temp/recordings.</summary>
+        public static void DeleteEmptyTemp(string media)
+        {
+            if (!IsTempRecordingPath(media)) return;
+            try
+            {
+                if (File.Exists(media) && new FileInfo(media).Length > 0) return;
+            }
+            catch { return; }
+            DeletePair(media);
+        }
+
         public static string SidecarPath(string media) => (media ?? "") + ".meta.json";
 
         public static string NewMediaPath(string folder, string prefix, string ext, DateTime utcNow)

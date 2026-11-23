@@ -291,6 +291,7 @@ namespace BestSnap.Services
             m.Items.Add(_timedItem);
             m.Items.Add(new WinForms.ToolStripSeparator());
             Add(L.T("开始/停止录屏"), ToggleRecording);
+            Add(L.T("打开视频文件夹"), OpenVideoFolder);
             Add(L.T("录制音频…"), ShowAudioRecorder);
             Add(L.T("仅转写（不保存音频）…"), ShowLiveTranscribe);
             Add(L.T("屏幕取色器"), ShowColorPicker);
@@ -467,6 +468,7 @@ namespace BestSnap.Services
             catch (Exception ex)
             {
                 Logger.Error("BeginRecording", ex);
+                try { TempRecordingStore.DeleteEmptyTemp(_recorder.CurrentFile); } catch { }
                 MessageBox.Show(L.T("无法开始录屏：\n") + ex.Message, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -477,6 +479,14 @@ namespace BestSnap.Services
         private void OnRecordingCompleted(string file)
         {
             CloseRecBar();
+            if (!RecordingSavePath.IsUsableMedia(file))
+            {
+                Logger.Info("Recording complete but empty or missing: " + file);
+                try { TempRecordingStore.DeleteEmptyTemp(file); } catch { }
+                if (_exiting) return;
+                MessageBox.Show(L.T("录屏未能写入文件（可能停止过早）。未保存任何内容。"), L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             string saved = file;
             try { saved = RecordingCommit.SaveNow(file, _settings); }
             catch (Exception ex)
@@ -495,8 +505,26 @@ namespace BestSnap.Services
         {
             CloseRecBar();
             Logger.Info("Recording failed: " + error);
+            try { TempRecordingStore.DeleteEmptyTemp(_recorder.CurrentFile); } catch { }
             if (_exiting) return;
-            MessageBox.Show(L.T("录屏失败：\n") + error, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
+            string msg = RecorderFailure.IsEncoderWriteError(error)
+                ? L.T("录屏未能写入文件（可能停止过早）。未保存任何内容。")
+                : L.T("录屏失败：\n") + error;
+            MessageBox.Show(msg, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+
+        public void OpenVideoFolder()
+        {
+            try
+            {
+                string dir = RecordingSavePath.EnsureVideoFolder(S.Recording?.SaveFolder, S.SaveFolder);
+                ShellUtil.OpenFolder(dir);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("OpenVideoFolder", ex);
+                MessageBox.Show(L.T("无法打开视频文件夹：\n") + ex.Message, AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         // ---------------- timed capture ----------------

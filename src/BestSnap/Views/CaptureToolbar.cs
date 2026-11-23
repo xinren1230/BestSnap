@@ -71,6 +71,7 @@ namespace BestSnap.Views
                 recMenu.PlacementTarget = recBtn;
                 recMenu.IsOpen = true;
             });
+            Btn("\uE8B7", L.T("打开视频文件夹"), ctl.OpenVideoFolder);
 
             var more = BuildMoreButton();
             panel.Children.Add(more);

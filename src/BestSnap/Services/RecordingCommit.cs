@@ -30,7 +30,13 @@ namespace BestSnap.Services
 
         public static void OpenEditor(string file)
         {
-            if (string.IsNullOrWhiteSpace(file) || !File.Exists(file)) return;
+            if (!RecordingSavePath.IsUsableMedia(file))
+            {
+                System.Windows.MessageBox.Show(
+                    L.T("无法打开视频：文件不存在或大小为 0。"),
+                    AppIdentity.Name, System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                return;
+            }
             if (VideoStudioHost.CanHostEditor())
             {
                 new VideoEditorWindow(file).Show();
@@ -38,7 +44,7 @@ namespace BestSnap.Services
             }
             if (TrimRangeMath.CanTrimPath(file))
             {
-                new TrimWindow(file).Show();
+                new TrimWindow(file, onApplied: null, protectOriginal: true).Show();
                 return;
             }
             System.Windows.MessageBox.Show(

@@ -31,7 +31,7 @@ function onMessage(data) {
     return;
   }
   if (data.type === 'openMedia') {
-    sourceUrl = data.url || '/session/source';
+    sourceUrl = data.url || '';
     sourceName = data.name || 'recording.mp4';
     const waiters = openWaiters.splice(0);
     for (const w of waiters) w({ url: sourceUrl, name: sourceName });

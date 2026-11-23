@@ -37,7 +37,7 @@ namespace BestSnap.Tests
         public void PromoteToFolder_MovesMediaAndTxt_DoesNotStayInTemp()
         {
             var root = Path.Combine(Path.GetTempPath(), "bs-prom-" + Guid.NewGuid().ToString("N"));
-            var temp = Path.Combine(root, "temp");
+            var temp = Path.Combine(root, "temp", "recordings");
             var dest = Path.Combine(root, "Videos");
             Directory.CreateDirectory(temp);
             Directory.CreateDirectory(dest);
@@ -75,14 +75,99 @@ namespace BestSnap.Tests
         }
 
         [Fact]
-        public void SessionSourceUri_MatchesVirtualHost()
+        public void PromoteToFolder_DoesNotDeleteOriginalOutsideTempEvenIfDestDiffers()
         {
-            Assert.Equal("vs.bestsnap.local", RecordingSavePath.VirtualHost);
-            Assert.Equal("https://vs.bestsnap.local/session/source", RecordingSavePath.SessionSourceUrl);
-            Assert.True(RecordingSavePath.IsSessionSourceUri("https://vs.bestsnap.local/session/source"));
-            Assert.True(RecordingSavePath.IsSessionSourceUri("https://VS.BESTSNAP.LOCAL/session/source?x=1"));
-            Assert.False(RecordingSavePath.IsSessionSourceUri("https://vs.bestsnap.local/index.html"));
-            Assert.False(RecordingSavePath.IsSessionSourceUri("https://evil.example/session/source"));
+            var root = Path.Combine(Path.GetTempPath(), "bs-keep-" + Guid.NewGuid().ToString("N"));
+            var srcDir = Path.Combine(root, "New folder", "OneDrive", "Pictures", "SnapForge");
+            var destDir = Path.Combine(root, "Videos");
+            Directory.CreateDirectory(srcDir);
+            Directory.CreateDirectory(destDir);
+            try
+            {
+                string src = Path.Combine(srcDir, "Rec_20261123_222047.mp4");
+                File.WriteAllBytes(src, new byte[] { 7, 7, 7, 7 });
+                string saved = RecordingSavePath.PromoteToFolder(src, destDir);
+                Assert.True(File.Exists(src), "saved original in a user folder must not be deleted");
+                Assert.True(File.Exists(saved));
+                Assert.False(RecordingSavePath.PathsEqual(src, saved));
+                Assert.Equal(4, new FileInfo(src).Length);
+            }
+            finally { try { Directory.Delete(root, true); } catch { } }
+        }
+
+        [Fact]
+        public void Hosts_AreSeparatedAndUseLocalhost()
+        {
+            Assert.Equal("vs.bestsnap.localhost", RecordingSavePath.VirtualHost);
+            Assert.Equal("media.bestsnap.localhost", RecordingSavePath.MediaHost);
+            Assert.NotEqual(RecordingSavePath.VirtualHost, RecordingSavePath.MediaHost);
+            Assert.EndsWith(".localhost", RecordingSavePath.VirtualHost);
+            Assert.EndsWith(".localhost", RecordingSavePath.MediaHost);
+            Assert.Equal("https://vs.bestsnap.localhost", RecordingSavePath.EditorOrigin);
+        }
+
+        [Fact]
+        public void MediaSourceUrl_EncodesSpacesAndNonAscii_AndStaysOnMediaHost()
+        {
+            string folder = Path.Combine("D:", "New folder", "OneDrive", "Pictures", "SnapForge");
+            string spaced = Path.Combine(folder, "Rec 2026.mp4");
+            string url = RecordingSavePath.MediaSourceUrl(spaced);
+            Assert.StartsWith("https://media.bestsnap.localhost/source/", url);
+            Assert.Contains("%20", url);
+            Assert.DoesNotContain("New folder", url);
+            Assert.True(HostedMediaServe.TryParseSourceUri(url, out string name));
+            Assert.Equal("Rec 2026.mp4", name);
+            Assert.True(HostedMediaServe.NameMatchesSource(name, spaced));
+
+            string zh = Path.Combine(folder, "录屏.mp4");
+            string zhUrl = RecordingSavePath.MediaSourceUrl(zh);
+            Assert.True(HostedMediaServe.TryParseSourceUri(zhUrl, out string zhName));
+            Assert.Equal("录屏.mp4", zhName);
+            Assert.False(HostedMediaServe.IsMediaHostUri("https://vs.bestsnap.localhost/source/Rec.mp4"));
+            Assert.False(HostedMediaServe.TryParseSourceUri("https://vs.bestsnap.localhost/index.html", out _));
+        }
+
+        [Fact]
+        public void GuardExportDest_NeverReturnsOriginal()
+        {
+            var orig = Path.Combine(Path.GetTempPath(), "Rec_20261123_222047.mp4");
+            Assert.False(RecordingSavePath.WouldOverwriteOriginal(orig, RecordingSavePath.DefaultEditedPath(orig)));
+            string guarded = RecordingSavePath.GuardExportDest(orig, orig);
+            Assert.False(RecordingSavePath.PathsEqual(orig, guarded));
+            Assert.Contains("-edited", Path.GetFileName(guarded));
+        }
+
+        [Fact]
+        public void IsUsableMedia_RejectsMissingAndZeroByte()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "bs-use-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string missing = Path.Combine(dir, "no.mp4");
+                Assert.False(RecordingSavePath.IsUsableMedia(missing));
+                string empty = Path.Combine(dir, "empty.mp4");
+                File.WriteAllBytes(empty, Array.Empty<byte>());
+                Assert.False(RecordingSavePath.IsUsableMedia(empty));
+                string ok = Path.Combine(dir, "ok.mp4");
+                File.WriteAllBytes(ok, new byte[] { 1, 2 });
+                Assert.True(RecordingSavePath.IsUsableMedia(ok));
+            }
+            finally { try { Directory.Delete(dir, true); } catch { } }
+        }
+
+        [Fact]
+        public void EnsureVideoFolder_CreatesMissingDirectory()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "bs-vid-" + Guid.NewGuid().ToString("N"), "SnapForge");
+            try
+            {
+                Assert.False(Directory.Exists(dir));
+                string got = RecordingSavePath.EnsureVideoFolder(dir, null);
+                Assert.True(Directory.Exists(got));
+                Assert.Equal(Path.GetFullPath(dir), got);
+            }
+            finally { try { Directory.Delete(Path.GetDirectoryName(dir), true); } catch { } }
         }
 
         [Fact]

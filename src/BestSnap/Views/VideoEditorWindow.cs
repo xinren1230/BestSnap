@@ -53,6 +53,8 @@ namespace BestSnap.Views
 
         async Task InitAsync()
         {
+            if (!RecordingSavePath.IsUsableMedia(_source))
+                throw new InvalidOperationException(L.T("无法打开视频：文件不存在或大小为 0。"));
             if (!VideoStudioHost.TryFindDist(out _dist))
                 throw new InvalidOperationException(L.T("找不到编辑器文件。"));
             Directory.CreateDirectory(VideoStudioHost.UserDataFolder);
@@ -62,10 +64,13 @@ namespace BestSnap.Views
             core.Settings.AreDefaultContextMenusEnabled = true;
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
+            // Dist on its own host. Media is a DIFFERENT host that is never folder-mapped;
+            // WebView2 does not raise WebResourceRequested for SetVirtualHostNameToFolderMapping
+            // (MicrosoftEdge/WebView2Feedback #1847, #2685).
             core.SetVirtualHostNameToFolderMapping(
                 RecordingSavePath.VirtualHost, _dist, CoreWebView2HostResourceAccessKind.Allow);
             core.AddWebResourceRequestedFilter(
-                "https://" + RecordingSavePath.VirtualHost + "/session/*",
+                "https://" + RecordingSavePath.MediaHost + "/*",
                 CoreWebView2WebResourceContext.All);
             core.WebResourceRequested += OnResourceRequested;
             core.WebMessageReceived += OnMessage;
@@ -76,7 +81,7 @@ namespace BestSnap.Views
                     var payload = JsonSerializer.Serialize(new
                     {
                         type = "openMedia",
-                        url = RecordingSavePath.SessionSourcePath,
+                        url = RecordingSavePath.MediaSourceUrl(_source),
                         name = IOPath.GetFileName(_source)
                     });
                     core.PostWebMessageAsJson(payload);
@@ -89,18 +94,37 @@ namespace BestSnap.Views
 
         void OnResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
-            if (!RecordingSavePath.IsSessionSourceUri(e.Request.Uri)) return;
-            if (!File.Exists(_source)) return;
+            if (!HostedMediaServe.IsMediaHostUri(e.Request.Uri)) return;
+            string range = null;
             try
             {
-                var stream = File.OpenRead(_source);
-                string mime = MimeFor(_source);
+                var headers = e.Request.Headers;
+                if (headers != null && headers.Contains("Range"))
+                    range = headers.GetHeader("Range");
+            }
+            catch { }
+            HostedMediaResponse served = null;
+            try
+            {
+                served = HostedMediaServe.Serve(e.Request.Method, e.Request.Uri, range, _source);
                 e.Response = _web.CoreWebView2.Environment.CreateWebResourceResponse(
-                    stream, 200, "OK", "Content-Type: " + mime + "\r\nAccess-Control-Allow-Origin: *");
+                    served.Body, served.Status, served.Reason, served.Headers);
+                if (served.Status >= 400)
+                    Logger.Info("VideoEditorMedia fail " + served.Status + " " + e.Request.Uri);
+                else
+                    Logger.Info("VideoEditorMedia served " + served.Status + " " + e.Request.Uri + " bytes=" + served.ContentLength);
             }
             catch (Exception ex)
             {
-                Logger.Error("VideoEditorSource", ex);
+                Logger.Error("VideoEditorMedia", ex);
+                try
+                {
+                    e.Response = _web.CoreWebView2.Environment.CreateWebResourceResponse(
+                        Stream.Null, 500, "Error",
+                        "Content-Length: 0\r\nAccess-Control-Allow-Origin: " + RecordingSavePath.EditorOrigin + "\r\n");
+                }
+                catch { }
+                served?.Dispose();
             }
         }
 
@@ -153,7 +177,7 @@ namespace BestSnap.Views
             };
             if (dlg.ShowDialog(this) != true)
                 return new { accepted = false };
-            string dest = dlg.FileName;
+            string dest = RecordingSavePath.GuardExportDest(_source, dlg.FileName);
             string token = Guid.NewGuid().ToString("N");
             string tmp = dest + "." + token + ".part";
             var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -182,7 +206,12 @@ namespace BestSnap.Views
                 _writes.Remove(token);
                 _writeDest.Remove(token);
                 string tmp = dest + "." + token + ".part";
-                if (File.Exists(dest)) File.Delete(dest);
+                if (RecordingSavePath.WouldOverwriteOriginal(_source, dest))
+                {
+                    try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                    throw new InvalidOperationException(L.T("已保存的原片不会被覆盖。请导出为新文件。"));
+                }
+                if (File.Exists(dest) && !RecordingSavePath.PathsEqual(dest, _source)) File.Delete(dest);
                 File.Move(tmp, dest);
                 return new { path = dest, done = true };
             }
@@ -228,21 +257,6 @@ namespace BestSnap.Views
             {
                 try { _web.CoreWebView2?.PostWebMessageAsJson(json); } catch { }
             }));
-        }
-
-        static string MimeFor(string path)
-        {
-            string e = (IOPath.GetExtension(path) ?? "").ToLowerInvariant();
-            return e switch
-            {
-                ".mp4" => "video/mp4",
-                ".webm" => "video/webm",
-                ".mov" => "video/quicktime",
-                ".gif" => "image/gif",
-                ".mp3" => "audio/mpeg",
-                ".wav" => "audio/wav",
-                _ => "application/octet-stream"
-            };
         }
 
         static string FilterFor(string ext)
