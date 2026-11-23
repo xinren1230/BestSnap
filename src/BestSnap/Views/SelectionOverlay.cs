@@ -12,7 +12,7 @@ using BestSnap.Services;
 
 namespace BestSnap.Views
 {
-    public enum SelectionKind { Rectangle, Freehand, Fixed, WindowObject, ColorPick }
+    public enum SelectionKind { Rectangle, Freehand, Fixed, WindowObject, ColorPick, Scrolling }
 
     /// <summary>
     /// Full virtual-desktop overlay showing a frozen screenshot. The window is positioned in physical pixels
@@ -33,6 +33,7 @@ namespace BestSnap.Views
         private List<WindowEnumerator.Win> _wins;
         private Point? _start;
         private Int32Rect _hoverRect;
+        private Int32Rect _windowRect;
         private readonly int _fw, _fh;
 
         public BitmapSource Result { get; private set; }
@@ -42,7 +43,7 @@ namespace BestSnap.Views
         {
             _kind = kind; _fw = fixedW; _fh = fixedH;
             _vs = CaptureService.VirtualScreen;
-            if (kind == SelectionKind.WindowObject) _wins = WindowEnumerator.Snapshot();
+            if (kind == SelectionKind.WindowObject || kind == SelectionKind.Scrolling) _wins = WindowEnumerator.Snapshot();
             _screen = CaptureService.CaptureRect(_vs);
 
             WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize; Topmost = true; ShowInTaskbar = false;
@@ -76,6 +77,7 @@ namespace BestSnap.Views
                 SelectionKind.Freehand => L.T("按住左键绘制任意形状，Esc 取消"),
                 SelectionKind.Fixed => string.Format(L.T("固定大小 {0}×{1}：单击确认，Esc 取消"), _fw, _fh),
                 SelectionKind.WindowObject => L.T("移动鼠标高亮窗口/控件，单击截取"),
+                SelectionKind.Scrolling => L.T("单击窗口，或拖选窗口内区域，开始滚动截图。Esc 取消"),
                 _ => L.T("单击复制颜色值，Esc 取消")
             };
         }
@@ -126,9 +128,13 @@ namespace BestSnap.Views
                 case SelectionKind.Fixed:
                     _hoverRect = new Int32Rect((int)px.X - _fw / 2, (int)px.Y - _fh / 2, _fw, _fh); ShowRect(_hoverRect); break;
                 case SelectionKind.WindowObject:
+                case SelectionKind.Scrolling when !_start.HasValue:
                     var hit = WindowEnumerator.HitTest(_wins, (int)px.X + _vs.X, (int)px.Y + _vs.Y);
-                    if (hit.HasValue) { var r = hit.Value; _hoverRect = new Int32Rect(r.Left - _vs.X, r.Top - _vs.Y, r.Width, r.Height); ShowRect(_hoverRect); _info.Text = $"{r.Width} × {r.Height}"; }
+                    if (hit.HasValue) { var r = hit.Value; _hoverRect = new Int32Rect(r.Left - _vs.X, r.Top - _vs.Y, r.Width, r.Height); if (_kind == SelectionKind.Scrolling) _windowRect = _hoverRect; ShowRect(_hoverRect); _info.Text = $"{r.Width} × {r.Height}"; }
                     break;
+                case SelectionKind.Scrolling when _start.HasValue:
+                    _hoverRect = RectFrom(ToPx(_start.Value), px); ShowRect(_hoverRect);
+                    _info.Text = $"{_hoverRect.Width} × {_hoverRect.Height}"; break;
                 case SelectionKind.ColorPick:
                     var c = PixelAt((int)px.X, (int)px.Y);
                     _info.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}  RGB({c.R},{c.G},{c.B})  ({(int)px.X + _vs.X},{(int)px.Y + _vs.Y})";
@@ -159,7 +165,7 @@ namespace BestSnap.Views
             var dip = e.GetPosition(this);
             switch (_kind)
             {
-                case SelectionKind.Rectangle: case SelectionKind.Freehand:
+                case SelectionKind.Rectangle: case SelectionKind.Freehand: case SelectionKind.Scrolling:
                     _start = dip; CaptureMouse();
                     if (_kind == SelectionKind.Freehand) { _free.Points.Clear(); _freePx.Clear(); _free.Points.Add(dip); _freePx.Add(ToPx(dip)); }
                     break;
@@ -178,6 +184,11 @@ namespace BestSnap.Views
             if (!_start.HasValue) return;
             ReleaseMouseCapture();
             if (_kind == SelectionKind.Rectangle) Finish(_hoverRect);
+            else if (_kind == SelectionKind.Scrolling)
+            {
+                var drag = _hoverRect;
+                Finish(drag.Width >= 16 && drag.Height >= 16 ? drag : _windowRect);
+            }
             else if (_kind == SelectionKind.Freehand && _freePx.Count > 3)
             {
                 Result = CaptureService.CropPolygon(_screen, _freePx);

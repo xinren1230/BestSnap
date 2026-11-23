@@ -90,6 +90,22 @@ https://github.com/sskodje/ScreenRecorderLib
 License: MIT
 
 --------------------------------------------------------------------------
+NAudio
+https://github.com/naudio/NAudio
+License: MIT
+Used for WASAPI microphone/loopback capture and Media Foundation MP3 encoding.
+Not bundled as source; restored from NuGet (NAudio 2.2.1).
+
+--------------------------------------------------------------------------
+Whisper.net / whisper.cpp
+https://github.com/sandrohanea/whisper.net
+https://github.com/ggml-org/whisper.cpp
+License: MIT
+Used for on-device speech-to-text. Models (ggml-*.bin) are downloaded on first use
+into %LocalAppData%\BestSnap\models\whisper and are not bundled in the installer.
+Not bundled as source; restored from NuGet (Whisper.net 1.8.1, Whisper.net.Runtime 1.8.1).
+
+--------------------------------------------------------------------------
 WpfMath
 https://github.com/ForNeVeR/wpf-math
 License: MIT
@@ -111,3 +127,13 @@ runtime redistributable components as produced by `dotnet publish
 Inno Setup (used only to produce this installer; not part of BestSnap)
 https://jrsoftware.org/isinfo.php
 License: Inno Setup License
+
+--------------------------------------------------------------------------
+Video Studio (modified copy, embedded video editor)
+https://github.com/HeyPuter/everything (original src/video-studio)
+Copyright (c) 2026 Puter Technologies Inc.
+License: GNU Affero General Public License v3.0 only
+A complete LICENSE and a NOTICE describing BestSnap's modifications are
+installed next to this file in licenses\video-studio\. The rest of BestSnap
+remains Apache-2.0. The editor is hosted from {app}\video-studio\ (no
+network). Captions use BestSnap's on-device Whisper.

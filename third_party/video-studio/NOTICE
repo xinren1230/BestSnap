@@ -1,0 +1,24 @@
+BestSnap Video Editor
+A modified copy of Video Studio, vendored into BestSnap.
+
+Original work
+  Video Studio (src/video-studio in https://github.com/HeyPuter/everything)
+  Copyright (c) 2026 Puter Technologies Inc.
+  License: GNU Affero General Public License v3.0 only (see LICENSE in this folder)
+
+This copy was modified on 2026-11-23 for BestSnap:
+
+  - Removed every cloud host SDK call site (file system, key-value store, auth,
+    workers, AI chat, text-to-image, text-to-video, speech, review sharing)
+    and the corresponding UI (sign-in, profile, share, AI assistant, generate,
+    script-to-video, cloud restyle).
+  - Removed the third-party cloud script tag and any network calls to that host.
+  - Captions / speech-to-text go through BestSnap's on-device Whisper via a
+    local WebView2 (or Electron) host bridge.
+  - Projects stay in this browser's origin-private file system; export uses a
+    host save dialog and never talks to a cloud drive.
+  - Window title is "BestSnap Video Editor" / 「视频编辑」. About still says
+    "Based on Video Studio (AGPL-3.0)".
+
+The rest of BestSnap remains Apache-2.0. This folder is AGPL-3.0-only.
+Redistribute the LICENSE next to the built editor, as the installer does.

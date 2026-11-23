@@ -17,8 +17,8 @@ namespace BestSnap.Views
         public static readonly Dictionary<string, string> ActionNames = new Dictionary<string, string>
         {
             ["FullScreen"] = "全屏截图", ["ActiveWindow"] = "活动窗口", ["WindowObject"] = "窗口/对象", ["Region"] = "矩形区域",
-            ["Freehand"] = "手绘区域", ["FixedRegion"] = "固定大小区域", ["Scrolling"] = "滚动窗口", ["RepeatLast"] = "重复上次截图",
-            ["Recorder"] = "开始/停止录屏", ["OcrRegion"] = "识别文字 (OCR)", ["PinRegion"] = "截图并钉到桌面", ["History"] = "截图历史", ["TimedCapture"] = "开始/停止定时截图", ["QrRegion"] = "识别二维码/条码", ["FormulaRegion"] = "公式转LaTeX",
+            ["Freehand"] = "手绘区域", ["FixedRegion"] = "固定大小区域", ["Scrolling"] = "滚动截图", ["RepeatLast"] = "重复上次截图",
+            ["Recorder"] = "开始/停止录屏", ["AudioRecorder"] = "开始/停止录音", ["OcrRegion"] = "识别文字 (OCR)", ["PinRegion"] = "截图并钉到桌面", ["History"] = "截图历史", ["TimedCapture"] = "开始/停止定时截图", ["QrRegion"] = "识别二维码/条码", ["FormulaRegion"] = "公式转LaTeX",
         };
 
         public SettingsWindow(SettingsService svc, AppController ctl)
@@ -151,7 +151,6 @@ namespace BestSnap.Views
             micVol.SetBinding(Slider.ValueProperty, new Binding(nameof(vm.RecordMicVolume)));
             Row(gRecA, L.T("麦克风"), micVol);
             Row(gRecA, "", C(L.T("录制区域时显示边框（不会被录进去）"), nameof(vm.RecordShowRegionBorder)));
-            Row(gRecA, "", C(L.T("录制完成后打开剪辑预览（需要 OCR/媒体插件）"), nameof(vm.RecordTrimAfter)));
             Row(gRecA, "", C(L.T("画中画：叠加摄像头"), nameof(vm.RecordWebcamEnabled)));
             Row(gRecA, L.T("位置"), Combo(SettingsViewModel.WebcamCornerNames, nameof(vm.RecordWebcamCorner), "Value"));
             Row(gRecA, L.T("大小"), Combo(SettingsViewModel.WebcamSizeChoices, nameof(vm.RecordWebcamSize)));
@@ -173,6 +172,9 @@ namespace BestSnap.Views
             var trb = new Button { Content = L.T("翻译服务设置…"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 2, 10, 2) };
             trb.Click += (s, e) => new TranslateSettingsWindow { Owner = this }.ShowDialog();
             Row(gOcr, L.T("OCR 翻译"), trb);
+            var stt = new Button { Content = L.T("转写与摘要设置…"), HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 2, 10, 2) };
+            stt.Click += (s, e) => new TranscriptionSettingsWindow { Owner = this }.ShowDialog();
+            Row(gOcr, L.T("转写 / 摘要"), stt);
 
             var gOcrA = NewGrid();
             Row(gOcrA, "", new TextBlock

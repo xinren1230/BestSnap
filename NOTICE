@@ -6,3 +6,7 @@ Licensed under the Apache License, Version 2.0 (see LICENSE).
 Third-party components bundled with or downloaded by BestSnap remain under
 their original licenses; see THIRD_PARTY_NOTICES.md. This NOTICE does not
 relicense those components.
+
+The embedded video editor in third_party/video-studio/ is a modified Video
+Studio, licensed under AGPL-3.0-only. Original copyright: Puter Technologies
+Inc. 2026. BestSnap's modifications are described in that folder's NOTICE.

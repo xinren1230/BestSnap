@@ -1,0 +1,298 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MediaService } from '../src/media/media-service.js';
+
+const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+const video = { id: 'v', hash: 'video', kind: 'video', duration: 2_000_000 };
+function workers() {
+  const made = [];
+  vi.stubGlobal('Worker', class {
+    constructor() { made.push(this); }
+    postMessage = vi.fn();
+    terminate = vi.fn();
+  });
+  return made;
+}
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('media service disposal', () => {
+  it('does not start decoding when a thumbnail read finishes after exit', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    let finish;
+    const service = new MediaService({ mediaBlob: () => new Promise((resolve) => { finish = resolve; }) });
+    service.thumb(video, 0, 1);
+    await vi.advanceTimersByTimeAsync(16);
+    service.dispose();
+    finish(new Blob(['video']));
+    await flush();
+    expect(made).toHaveLength(0);
+    expect(service.pending.size).toBe(0);
+    expect(service.queue).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('settles outstanding waveform requests and clears pending jobs on exit', async () => {
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['audio']) });
+    const changed = vi.fn();
+    service.on('peaks', changed);
+    let result;
+    service.peaks(video).then((value) => { result = value; });
+    await flush();
+    expect(made[0].postMessage).toHaveBeenCalledTimes(1);
+    service.dispose();
+    await flush();
+    expect(result).toMatchObject({ duration: 0 });
+    expect(service.pending.size).toBe(0);
+    expect(service.peakCache.size).toBe(0);
+    expect(made[0].terminate).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('closes an image bitmap that finishes decoding after exit', async () => {
+    let finish;
+    vi.stubGlobal('createImageBitmap', () => new Promise((resolve) => { finish = resolve; }));
+    const service = new MediaService({ mediaBlob: async () => new Blob(['image']) });
+    const changed = vi.fn();
+    service.on('poster', changed);
+    const poster = service.poster({ ...video, kind: 'image' });
+    await flush();
+    service.dispose();
+    const bitmap = { close: vi.fn() };
+    finish(bitmap);
+    expect(await poster).toBeNull();
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('caches normal thumbnail and waveform replies until disposal', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    service.thumb(video, 0, 1);
+    await vi.advanceTimersByTimeAsync(16);
+    const worker = made[0];
+    const { id } = worker.postMessage.mock.calls[0][0];
+    const bitmap = { close: vi.fn() };
+    worker.onmessage({ data: { id, partial: { index: 0, bitmap } } });
+    worker.onmessage({ data: { id, ok: true } });
+    await flush();
+    expect(service.thumb(video, 0, 1)).toBe(bitmap);
+    const peaks = service.peaks(video);
+    await flush();
+    const peaksId = worker.postMessage.mock.calls[1][0].id;
+    const result = { rate: 100, data: new Float32Array([0, 1]), duration: 1 };
+    worker.onmessage({ data: { id: peaksId, ok: true, result } });
+    expect(await peaks).toBe(result);
+    expect(service.peaksNow(video)).toBe(result);
+    expect(service.pending.size).toBe(0);
+    service.dispose();
+    service.dispose();
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    service.thumb(video, 0, 1);
+    expect(await service.poster(video)).toBeNull();
+    await service.peaks(video);
+    expect(service.peakCache.size).toBe(0);
+    expect(made).toHaveLength(1);
+  });
+
+  it('releases a partial video poster when its worker is terminated', async () => {
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    const poster = service.poster(video);
+    await flush();
+    const bitmap = { close: vi.fn() };
+    const { id } = made[0].postMessage.mock.calls[0][0];
+    made[0].onmessage({ data: { id, partial: { bitmap } } });
+    service.dispose();
+    await flush();
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    expect(await poster).toBeNull();
+  });
+});
+
+describe('media worker failures', () => {
+  it.each(['error', 'messageerror'])('settles and retries waveform jobs after a worker %s', async (type) => {
+    vi.useFakeTimers();
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['audio']) });
+    let result;
+    service.peaks(video).then((value) => { result = value; });
+    await flush();
+    made[0][`on${type}`]?.({ message: 'Worker failed', preventDefault() {} });
+    await flush();
+    expect(result).toMatchObject({ duration: 0 });
+    expect(service.pending.size).toBe(0);
+    expect(made[0].terminate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    const retry = service.peaks(video);
+    await flush();
+    expect(made).toHaveLength(2);
+    const { id } = made[1].postMessage.mock.calls[0][0];
+    const recovered = { rate: 100, data: new Float32Array([0, 1]), duration: 1 };
+    made[1].onmessage({ data: { id, ok: true, result: recovered } });
+    expect(await retry).toBe(recovered);
+    service.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retries thumbnail and poster jobs after failure and cancels retries on exit', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    service.thumb(video, 0, 1);
+    const firstPoster = service.poster(video);
+    await vi.advanceTimersByTimeAsync(16);
+    made[0].onerror?.({ message: 'Worker failed' });
+    await flush();
+    expect(await firstPoster).toBeNull();
+    expect(service.busy).toBe(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(service.thumb(video, 0, 1)).toBeNull();
+    const poster = service.poster(video);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(made).toHaveLength(2);
+    const worker = made[1];
+    expect(worker.postMessage).toHaveBeenCalledTimes(2);
+    const bitmap = { close: vi.fn() };
+    const thumbBitmap = { close: vi.fn() };
+    for (const [message] of worker.postMessage.mock.calls) {
+      const image = message.height === 240 ? bitmap : thumbBitmap;
+      worker.onmessage({ data: { id: message.id, partial: { index: 0, bitmap: image } } });
+      worker.onmessage({ data: { id: message.id, ok: true } });
+    }
+    expect(await poster).toBe(bitmap);
+    expect(service.thumb(video, 0, 1)).toBe(thumbBitmap);
+    // A later failure queues a retry, which exiting must cancel.
+    service.peaks(video);
+    await flush();
+    worker.onerror({ message: 'Worker failed again' });
+    await flush();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    service.dispose();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(made).toHaveLength(2);
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    expect(thumbBitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['construct', 'post'])('removes requests whose worker dispatch fails during %s', async (where) => {
+    vi.stubGlobal('Worker', class {
+      constructor() { if (where === 'construct') throw new Error('Cannot start worker'); }
+      postMessage() { throw new Error('Cannot send request'); }
+      terminate() {}
+    });
+    const service = new MediaService({ mediaBlob: async () => new Blob(['audio']) });
+    const result = await service.peaks(video);
+    expect(result.duration).toBe(0);
+    expect(service.pending.size).toBe(0);
+    service.dispose();
+  });
+});
+
+describe('media files that could not be read', () => {
+  it('asks for the waveform again after a read that failed, instead of keeping it empty for good', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    const mediaBlob = vi.fn().mockRejectedValueOnce(new Error('Failed to fetch')).mockResolvedValue(new Blob(['audio']));
+    const service = new MediaService({ mediaBlob });
+    const changed = vi.fn();
+    service.on('peaks', changed);
+    expect(await service.peaks(video)).toMatchObject({ duration: 0 });
+    await vi.advanceTimersByTimeAsync(3000);
+    // The empty answer is dropped and the panel told, so the next ask reads the file again.
+    expect(changed).toHaveBeenCalledTimes(2);
+    const again = service.peaks(video);
+    await flush();
+    expect(mediaBlob).toHaveBeenCalledTimes(2);
+    const { id } = made[0].postMessage.mock.calls[0][0];
+    const peaks = { rate: 100, data: new Float32Array([0, 1]), duration: 1 };
+    made[0].onmessage({ data: { id, ok: true, result: peaks } });
+    expect(await again).toBe(peaks);
+    service.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for a missing file to be found, then reads it again', async () => {
+    vi.useFakeTimers();
+    workers();
+    const mediaBlob = vi.fn().mockRejectedValue(new Error('Media file missing: v.mp4'));
+    const service = new MediaService({ mediaBlob });
+    service.missing = new Set([video.hash]);
+    await service.peaks(video);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await service.peaks(video);
+    expect(mediaBlob).toHaveBeenCalledTimes(1);
+    service.missing = new Set();
+    service.forget(video.hash);
+    service.peaks(video);
+    await flush();
+    expect(mediaBlob).toHaveBeenCalledTimes(2);
+    service.dispose();
+  });
+});
+
+describe('thumbnail memory', () => {
+  it('keeps a bounded number of thumbnails per video, letting go of the ones drawn longest ago', async () => {
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    const long = { id: 'l', hash: 'long', kind: 'video', duration: 3_600_000_000 };
+    const closed = [];
+    const ask = async (from, count) => {
+      for (let i = 0; i < count; i++) service.thumb(long, from + i, 1);
+      await new Promise((r) => setTimeout(r, 30));
+      await flush();
+      const w = made.at(-1);
+      const { id, times } = w.postMessage.mock.calls.at(-1)[0];
+      times.forEach((t, index) => w.onmessage({ data: { id, partial: { index, bitmap: { t, close: () => closed.push(t) } } } }));
+      w.onmessage({ data: { id, ok: true } });
+      await flush();
+    };
+    await ask(0, 500);
+    expect(service.thumb(long, 0, 1)?.t).toBe(0);
+    await ask(1000, 500);
+    const strip = service.strips.get('long');
+    expect([...strip.values()].filter((v) => v !== 'pending').length).toBeLessThanOrEqual(600);
+    expect(closed.length).toBeGreaterThanOrEqual(400);
+    // The one drawn again just before stayed; the newest are all there.
+    expect(closed).not.toContain(0);
+    expect(service.thumb(long, 1499, 1)?.t).toBe(1499);
+    service.dispose();
+  });
+});
+
+
+describe('image thumbnail notifications', () => {
+  it('notifies thumbnail consumers when an image first finishes decoding', async () => {
+    const image = { ...video, kind: 'image' }, bitmap = { close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+    const service = new MediaService({ mediaBlob: async () => new Blob(['image']) });
+    const painted = [];
+    service.on('thumb', ({ hash }) => { if (hash === image.hash) painted.push(service.thumb(image, 0, 1)); });
+    try {
+      expect(service.thumb(image, 0, 1)).toBeNull();
+      await flush();
+      expect(painted).toEqual([bitmap]);
+      expect(service.thumb(image, 0, 1)).toBe(bitmap);
+      expect(painted).toHaveLength(1);
+    } finally { service.dispose(); }
+  });
+
+  it('restarts and redraws an image after a failed read without a poster consumer', async () => {
+    vi.useFakeTimers();
+    const image = { ...video, kind: 'image' }, bitmap = { close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+    const mediaBlob = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(new Blob(['image']));
+    const service = new MediaService({ mediaBlob }), painted = [];
+    service.on('thumb', () => painted.push(service.thumb(image, 0, 1)));
+    try {
+      service.thumb(image, 0, 1);await flush();
+      await vi.advanceTimersByTimeAsync(3000);await flush();
+      expect(mediaBlob).toHaveBeenCalledTimes(2);
+      expect(painted.at(-1)).toBe(bitmap);
+      expect(service.thumb(image, 0, 1)).toBe(bitmap);
+    } finally { service.dispose(); }
+  });
+});

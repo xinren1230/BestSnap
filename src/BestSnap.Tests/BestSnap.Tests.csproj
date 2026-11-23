@@ -17,4 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BestSnap.Abstractions\BestSnap.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="fixtures\jfk.wav" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

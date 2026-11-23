@@ -48,7 +48,13 @@ namespace BestSnap.Services
             foreach (var hk in d.Hotkeys)
                 if (!s.Hotkeys.Any(h => string.Equals(h.Action, hk.Action, StringComparison.OrdinalIgnoreCase))) s.Hotkeys.Add(hk);
             if (s.Recording == null) s.Recording = d.Recording;
+            s.AudioRecording = AudioRecordingSettings.Normalize(s.AudioRecording, s.SaveFolder);
             if (s.Formula == null) s.Formula = d.Formula;
+            if (s.Chat == null) s.Chat = d.Chat;
+            if (string.IsNullOrWhiteSpace(s.WhisperModel)) s.WhisperModel = WhisperModels.DefaultId;
+            else s.WhisperModel = WhisperModels.Normalize(s.WhisperModel);
+            s.WhisperLanguage = WhisperDecode.NormalizeLanguage(s.WhisperLanguage);
+            if (s.WhisperPrompt != null) s.WhisperPrompt = s.WhisperPrompt.Trim();
             if (s.Watermark == null) s.Watermark = d.Watermark;
             else
             {

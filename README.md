@@ -14,12 +14,14 @@
 
 ### 功能
 
-- 📸 **截图**：框选区域、窗口、全屏；常驻顶部工具栏，一点就用
-- ✏️ **标注**：箭头、矩形、文字，复制或保存 PNG
+- 📸 **截图**：框选区域、窗口、全屏、**滚动截图**（工具栏按钮 / `Ctrl+Alt+PrintScreen`：点窗口或拖选区域内自动向下滚并拼接长图）
+- ✏️ **标注**：箭头、矩形、**画笔 (P)**、**荧光笔 (H)**、文字；颜色/线宽会记住；复制或保存 PNG
 - 🔤 **OCR 文字识别**：中英文混排一键提取文字（PP-OCRv4）
 - ∑ **公式转 LaTeX**：截一下公式，直接得到 LaTeX 代码并实时渲染预览
 - 🔳 **二维码 / 条码识别**：框一下，链接马上出来
-- 🎥 **录屏**：一键开始、再点一次停止
+- 🎥 **录屏**：框选区域 / 单显示器 / 全部显示器 / 窗口；控制条暂停；MP4（H.264+AAC）或 GIF。停止后立即保存到设定文件夹，弹出完成提示（完整路径、「打开文件位置」、「编辑视频」）。编辑器用内嵌、已去掉云端依赖的 Video Studio（AGPL-3.0）；导出默认另存为 `<原名>-edited.mp4`，不会覆盖原片
+- 🎙️ **录音**：麦克风、系统声音（WASAPI 环回）或混合，WAV / MP3，实时电平；工具栏「录制」菜单可选屏幕 / 音频 / 仅转写。停止后立即保存到设定文件夹并显示路径与「打开文件位置」；默认用本机 Whisper 自动转写（可关「录音后自动转文字」），文本写在完成窗和同名 UTF-8 BOM 的 `.txt`
+- 📝 **仅转写（不保存音频）**：滚动 Whisper 字幕 + 带时间戳的转写；默认「自动（推荐）」按显卡/内存选模型，也可手动 tiny～large-v3-turbo（含 q5_0）；语言 Auto 会检测并转写（不是只检测）；实时队列最多积压 1–2 窗，单窗超时则跳过并继续聆听，不会卡在「正在转写…」。长文件按约 30 秒窗流式转写。音频只在内存中，停止后可复制 / 保存 txt、srt 并摘要。字幕窗跟工具栏所在显示器；安装目录需带 `runtimes\win-x64`（及可选 GPU）下的 Whisper 原生库。无界面自检：`BestSnap.exe --transcribe-test file.wav --live-sim --stretch-minutes 10 --out transcript.txt`
 - 🕘 **截图历史**：自动保存，随时找回
 
 ### 下载
@@ -38,7 +40,7 @@
 
 **Windows 版**（`src/`，WPF / .NET 8，需在 Windows 上构建）：
 
-1. 安装 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)（x64）。打安装包还需 Inno Setup 6.5+（`winget install JRSoftware.InnoSetup`）。
+1. 安装 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)（x64）和 [Node.js 22.12+](https://nodejs.org/)（用于构建内嵌视频编辑器）。打安装包还需 Inno Setup 6.5+（`winget install JRSoftware.InnoSetup`）。
 2. 在 PowerShell 中，于仓库根目录运行：
 
 ```powershell
@@ -63,7 +65,7 @@ npm start               # 启动 Electron 工具栏
 
 ### 许可
 
-BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方组件（PP-OCRv4 / RapidOCR、pix2text-mfr、ONNX Runtime、KaTeX、ZXing 等）保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。内嵌视频编辑器是修改过的 Video Studio，单独使用 [AGPL-3.0](third_party/video-studio/LICENSE)。其他第三方组件（PP-OCRv4 / RapidOCR、pix2text-mfr、ONNX Runtime、KaTeX、ZXing 等）保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ---
 
@@ -73,12 +75,14 @@ BestSnap 使用 [Apache-2.0](LICENSE) 许可，© 2026 Chen Xinren。第三方�
 
 ### Features
 
-- 📸 **Capture** a region, a window or the full screen from an always-on top toolbar
-- ✏️ **Annotate** with arrows, rectangles and text; copy or save as PNG
+- 📸 **Capture** a region, a window, the full screen, or a **scrolling capture** (toolbar button / `Ctrl+Alt+PrintScreen`: click a window or drag a region, then auto-scroll and stitch)
+- ✏️ **Annotate** with arrows, rectangles, **pen (P)**, **highlighter (H)**, and text; last color/thickness is remembered; copy or save as PNG
 - 🔤 **OCR**: extract mixed Chinese/English text (PP-OCRv4)
 - ∑ **Formula → LaTeX**: snip an equation and get LaTeX code with a live preview
 - 🔳 **QR / barcode** decoding
-- 🎥 **Screen recording** with one click
+- 🎥 **Screen recording**: region, one monitor, all monitors, or a window; pause from the control bar; MP4 (H.264+AAC) or GIF. Stop saves immediately to the chosen folder and shows the full path with **Open file location** and **Edit video**. The editor is the vendored, cloud-free Video Studio (AGPL-3.0); export defaults to `<original>-edited.mp4` beside the original and does not overwrite it
+- 🎙️ **Audio recording**: microphone, system loopback, or mixed; WAV / MP3 with live meters. The toolbar Recording menu offers screen, audio-only, and transcribe-only. Stop saves immediately (path + Open file location; no Edit video). Stopping an audio-only take starts on-device Whisper by default (setting **Auto-transcribe after recording**); the text appears in the completion window and is saved as a UTF-8 BOM `.txt` next to the audio
+- 📝 **Transcribe only (no audio saved)**: live Whisper captions and a timestamped transcript; Auto (recommended) picks a model from GPU/RAM, or choose tiny–large-v3-turbo (q5_0), language, and a vocabulary prompt; language Auto detects **and** transcribes; the live queue keeps at most 1–2 pending windows and skips a chunk on timeout so the UI never sticks on “transcribing”; long files stream in ~30 s windows. Audio stays in memory; on stop you can copy / save .txt .srt and summarize. Headless check: `BestSnap.exe --transcribe-test file.wav --live-sim --stretch-minutes 10 --out transcript.txt`
 - 🕘 **Capture history**, saved automatically
 
 ### Download
@@ -97,7 +101,7 @@ Everything runs locally: the Windows app works offline on your PC. **Your screen
 
 **Windows** (`src/`, WPF / .NET 8, build on Windows):
 
-1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (x64). The installer build also needs Inno Setup 6.5+ (`winget install JRSoftware.InnoSetup`).
+1. Install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (x64) and [Node.js 22.12+](https://nodejs.org/) (to build the embedded video editor). The installer build also needs Inno Setup 6.5+ (`winget install JRSoftware.InnoSetup`).
 2. In PowerShell at the repository root:
 
 ```powershell
@@ -122,4 +126,4 @@ See [node/README.md](node/README.md) for CLI usage and AppImage packaging.
 
 ### License
 
-BestSnap is licensed under [Apache-2.0](LICENSE), © 2026 Chen Xinren. Third-party components (PP-OCRv4 / RapidOCR, pix2text-mfr, ONNX Runtime, KaTeX, ZXing, …) keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+BestSnap is licensed under [Apache-2.0](LICENSE), © 2026 Chen Xinren. The embedded video editor is a modified Video Studio under [AGPL-3.0](third_party/video-studio/LICENSE). Other third-party components (PP-OCRv4 / RapidOCR, pix2text-mfr, ONNX Runtime, KaTeX, ZXing, …) keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

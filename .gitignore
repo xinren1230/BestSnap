@@ -12,6 +12,7 @@ installer/cache/
 *.zip
 settings.json
 node/node_modules/
+third_party/video-studio/node_modules/
 node/dist/
 node/dist-app/
 node/test-results/

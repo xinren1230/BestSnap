@@ -480,6 +480,19 @@
   "鼠标与按键": "Souris et touches",
   "编码": "Encodage",
   "文件名": "Nom de fichier",
-  "按开始时间自动命名": "nommé automatiquement à l'heure de début"
+  "按开始时间自动命名": "nommé automatiquement à l'heure de début",
+  "已保存到": "Enregistré dans",
+  "打开文件位置": "Ouvrir l’emplacement du fichier",
+  "编辑视频": "Modifier la vidéo",
+  "录制已保存": "Enregistrement enregistré",
+  "录屏已保存": "Capture d’écran enregistrée",
+  "录屏已完成，但保存失败": "Enregistrement terminé, mais l’enregistrement a échoué",
+  "录音已完成，但保存失败：\n": "Enregistrement terminé, mais l’enregistrement a échoué :\n",
+  "无法打开视频编辑器：\n": "Impossible d’ouvrir l’éditeur vidéo :\n",
+  "找不到编辑器文件。": "Fichiers de l’éditeur introuvables.",
+  "未安装 WebView2 运行时或找不到编辑器文件，无法打开视频编辑。": "WebView2 est absent ou les fichiers de l’éditeur sont introuvables.",
+  "视频编辑": "Édition vidéo",
+  "发现 {0} 个未保存的临时录音，已写入保存文件夹。": "{0} enregistrement(s) temporaire(s) non sauvé(s) copié(s) dans votre dossier.",
+  "停止后立即保存到该文件夹": "enregistré dans ce dossier dès l’arrêt"
  }
 }

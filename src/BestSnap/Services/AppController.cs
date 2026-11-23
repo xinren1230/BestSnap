@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -18,6 +19,8 @@ namespace BestSnap.Services
         private readonly SettingsService _settings;
         private readonly HotkeyService _hotkeys = new HotkeyService();
         private readonly RecorderService _recorder = new RecorderService();
+        private readonly AudioRecorderService _audio = new AudioRecorderService();
+        private readonly LiveTranscribeService _live = new LiveTranscribeService();
         private WinForms.NotifyIcon _tray;
         private CaptureMode? _lastMode;
         private Int32Rect? _lastRect;
@@ -43,8 +46,26 @@ namespace BestSnap.Services
             _recorder.Failed += OnRecordingFailed;
             _recorder.RegionClipped += dev => Logger.Info("Recording region clipped to " + dev);
             RegisterHotkeys();
+            RecoverTempRecordings();
             if (S.ShowToolbarOnStartup) ShowToolbar();
             UiDemo();
+        }
+
+        void RecoverTempRecordings()
+        {
+            try
+            {
+                var folder = TempRecordingStore.EnsureFolder(AppPaths.LocalData);
+                TempRecordingStore.Cleanup(folder, TempRecordingStore.DefaultMaxAge, DateTime.UtcNow);
+                var ready = TempRecordingStore.ListReady(folder);
+                if (ready.Count == 0) return;
+                Notify(string.Format(L.T("发现 {0} 个未保存的临时录音，已写入保存文件夹。"), ready.Count));
+                string last = null;
+                foreach (var f in ready)
+                    last = RecordingCommit.SaveNow(f, _settings);
+                if (!string.IsNullOrEmpty(last)) RecordingCommit.ShowSaved(last, _settings);
+            }
+            catch (Exception ex) { Logger.Error("TempRecover", ex); }
         }
 
         /// <summary>Dev aid for UI screenshots: BESTSNAP_UI_DEMO=&lt;png&gt; (or legacy SNAPFORGE_UI_DEMO) opens the editor and the quick bar on that image at startup.</summary>
@@ -78,6 +99,7 @@ namespace BestSnap.Services
                 if (Enum.TryParse(hk.Action, out CaptureMode mode)) a = () => Capture(mode);
                 else if (hk.Action == "RepeatLast") a = RepeatLast;
                 else if (hk.Action == "Recorder") a = ToggleRecording;
+                else if (hk.Action == "AudioRecorder") a = ShowAudioRecorder;
                 else if (hk.Action == "OcrRegion") a = OcrRegion;
                 else if (hk.Action == "QrRegion") a = QrRegion;
                 else if (hk.Action == "FormulaRegion") a = FormulaRegion;
@@ -114,11 +136,7 @@ namespace BestSnap.Services
                     case CaptureMode.FullScreen: img = CaptureService.CaptureFullScreen(S.IncludeCursor); break;
                     case CaptureMode.ActiveWindow: { var h = WindowEnumerator.ResolveTargetWindow(); img = CaptureService.CaptureWindow(h, S.IncludeCursor); abs = WinRect(h); } break;
                     case CaptureMode.Scrolling:
-                        Notify(L.T("请在 2 秒内把鼠标移到要滚动的窗口内容上，开始后可在右下角面板点“完成”…"));
-                        await Task.Delay(2000);
-                        NativeMethods.GetCursorPos(out var p);
-                        var hw = NativeMethods.GetAncestor(NativeMethods.WindowFromPoint(p), NativeMethods.GA_ROOT);
-                        img = await ScrollCaptureService.CaptureAsync(hw);
+                        img = await ScrollCaptureService.CaptureAsync();
                         break;
                     default:
                         var kind = mode == CaptureMode.WindowObject ? SelectionKind.WindowObject
@@ -258,7 +276,7 @@ namespace BestSnap.Services
             Add(L.T("矩形区域"), () => Capture(CaptureMode.Region));
             Add(L.T("手绘区域"), () => Capture(CaptureMode.Freehand));
             Add(L.T("固定大小区域"), () => Capture(CaptureMode.FixedRegion));
-            Add(L.T("滚动窗口"), () => Capture(CaptureMode.Scrolling));
+            Add(L.T("滚动截图"), () => Capture(CaptureMode.Scrolling));
             Add(L.T("重复上次截图"), RepeatLast);
             m.Items.Add(new WinForms.ToolStripSeparator());
             Add(L.T("截图并钉到桌面"), PinRegion);
@@ -273,6 +291,9 @@ namespace BestSnap.Services
             m.Items.Add(_timedItem);
             m.Items.Add(new WinForms.ToolStripSeparator());
             Add(L.T("开始/停止录屏"), ToggleRecording);
+            Add(L.T("打开视频文件夹"), OpenVideoFolder);
+            Add(L.T("录制音频…"), ShowAudioRecorder);
+            Add(L.T("仅转写（不保存音频）…"), ShowLiveTranscribe);
             Add(L.T("屏幕取色器"), ShowColorPicker);
             Add(L.T("屏幕放大镜"), ToggleMagnifier);
             Add(L.T("屏幕标尺"), ShowRuler);
@@ -357,8 +378,54 @@ namespace BestSnap.Services
         private RecordingControlBar _recBar;
         private bool _recDialogOpen;
 
+        public bool IsAnyRecording => _recorder.IsRecording || _audio.IsRecording || _live.IsRunning;
+
+        public void StopAnyRecording()
+        {
+            if (_recorder.IsRecording) _recorder.Stop();
+            else if (_audio.IsRecording) _audio.Stop();
+            else if (_live.IsRunning) _live.Stop();
+        }
+
+        public void ShowLiveTranscribe()
+        {
+            if (_live.IsRunning) { _liveWin?.Activate(); return; }
+            ShowAudioRecorder(liveOnly: true);
+        }
+
+        public void StartLiveTranscribe(AudioRecordingSettings opts, Window owner = null)
+        {
+            if (_live.IsRunning) { _liveWin?.Activate(); return; }
+            if (_recorder.IsRecording || _audio.IsRecording)
+                throw new InvalidOperationException(L.T("请先停止当前录制。"));
+            var old = _liveWin;
+            _liveWin = null;
+            if (old != null)
+            {
+                try { old.Close(); } catch { }
+            }
+            Logger.Info("StartLiveTranscribe cycle=" + _live.SessionCycle);
+            _liveWin = new LiveCaptionWindow(_live, _settings, owner ?? _toolbar);
+            _liveWin.Closed += (o, e) => { if (ReferenceEquals(_liveWin, o)) _liveWin = null; };
+            _liveWin.Show();
+            _ = StartLiveCapture(opts);
+        }
+
+        async System.Threading.Tasks.Task StartLiveCapture(AudioRecordingSettings opts)
+        {
+            try
+            {
+                await _live.StartAsync(opts, S.WhisperModel, S.WhisperLanguage, S.WhisperPrompt);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("StartLiveTranscribe", ex);
+            }
+        }
+
         public void ToggleRecording()
         {
+            if (_live.IsRunning) { _live.Stop(); return; }
             if (_recorder.IsRecording) { _recorder.Stop(); return; }
             if (_recDialogOpen || _busy) return;
             _recDialogOpen = true;
@@ -377,9 +444,9 @@ namespace BestSnap.Services
                     if (!ov.ResultRect.HasValue) return;
                     var r = ov.ResultRect.Value; var vs = CaptureService.VirtualScreen;
                     req.Region = new Int32Rect(r.X + vs.X, r.Y + vs.Y, r.Width, r.Height);
-                    var scr = RecorderService.PickScreen(req.Region.Value, out bool spans);
-                    if (spans && MessageBox.Show(L.T("所选区域跨越了多个显示器。录屏一次只能录制一个显示器，\n将只录制位于 ") + scr.DeviceName + L.T(" 上的部分（重叠面积最大的显示器）。\n\n继续吗？"),
-                            L.T("BestSnap 录屏"), MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK) return;
+                    var area = RecorderService.ResolveArea(req);
+                    if (area.Width < 2 || area.Height < 2) { MessageBox.Show(L.T("录制区域无效"), L.T("BestSnap 录屏")); return; }
+                    req.Region = area;
                 }
                 if (opts.Countdown > 0) new CountdownWindow(opts.Countdown, () => BeginRecording(req)).Show();
                 else BeginRecording(req);
@@ -392,39 +459,72 @@ namespace BestSnap.Services
             try
             {
                 _recorder.Start(req, S.SaveFolder);
-                _trimAfter = req.Options.TrimAfterRecording && req.Options.Format == RecordFormat.Mp4 && PluginHost.Trimmer != null;
-                if (req.Region.HasValue && req.Options.ShowRegionBorder) { _border = new RegionBorderWindow(req.Region.Value); _border.Show(); }
+                var area = RecorderService.ResolveArea(req);
+                if (req.Options.ShowRegionBorder && area.Width > 0 && area.Height > 0)
+                { _border = new RegionBorderWindow(area); _border.Show(); }
                 _recBar = new RecordingControlBar(_recorder);
                 _recBar.Show();
             }
             catch (Exception ex)
             {
+                Logger.Error("BeginRecording", ex);
+                try { TempRecordingStore.DeleteEmptyTemp(_recorder.CurrentFile); } catch { }
                 MessageBox.Show(L.T("无法开始录屏：\n") + ex.Message, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private RegionBorderWindow _border;
-        private bool _trimAfter;
         private void CloseRecBar() { _recBar?.Close(); _recBar = null; _border?.Close(); _border = null; }
 
         private void OnRecordingCompleted(string file)
         {
             CloseRecBar();
-            Notify(L.T("录屏已保存: ") + file);
-            if (_exiting) return;
-            if (_trimAfter) { new TrimWindow(file).Show(); return; }
-            if (MessageBox.Show(L.T("录屏已保存：\n") + file + L.T("\n\n是否打开所在文件夹？"), L.T("BestSnap 录屏"), MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+            if (!RecordingSavePath.IsUsableMedia(file))
             {
-                try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + file + "\""); } catch { }
+                Logger.Info("Recording complete but empty or missing: " + file);
+                try { TempRecordingStore.DeleteEmptyTemp(file); } catch { }
+                if (_exiting) return;
+                MessageBox.Show(L.T("录屏未能写入文件（可能停止过早）。未保存任何内容。"), L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
+            string saved = file;
+            try { saved = RecordingCommit.SaveNow(file, _settings); }
+            catch (Exception ex)
+            {
+                Logger.Error("RecordingSave", ex);
+                Notify(L.T("录屏已完成，但保存失败") + ": " + ex.Message);
+                if (!_exiting) RecordingCommit.ShowSaved(file, _settings);
+                return;
+            }
+            Notify(L.T("录屏已保存") + ": " + saved);
+            if (_exiting) return;
+            RecordingCommit.ShowSaved(saved, _settings);
         }
 
         private void OnRecordingFailed(string error)
         {
             CloseRecBar();
             Logger.Info("Recording failed: " + error);
+            try { TempRecordingStore.DeleteEmptyTemp(_recorder.CurrentFile); } catch { }
             if (_exiting) return;
-            MessageBox.Show(L.T("录屏失败：\n") + error, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
+            string msg = RecorderFailure.IsEncoderWriteError(error)
+                ? L.T("录屏未能写入文件（可能停止过早）。未保存任何内容。")
+                : L.T("录屏失败：\n") + error;
+            MessageBox.Show(msg, L.T("BestSnap 录屏"), MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+
+        public void OpenVideoFolder()
+        {
+            try
+            {
+                string dir = RecordingSavePath.EnsureVideoFolder(S.Recording?.SaveFolder, S.SaveFolder);
+                ShellUtil.OpenFolder(dir);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("OpenVideoFolder", ex);
+                MessageBox.Show(L.T("无法打开视频文件夹：\n") + ex.Message, AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         // ---------------- timed capture ----------------
@@ -506,24 +606,43 @@ namespace BestSnap.Services
         }
 
         /// <summary>Exit safely: if recording, stop and wait (max 5 s) for the MP4 to be finalised first.</summary>
+        AudioRecorderWindow _audioWin;
+        LiveCaptionWindow _liveWin;
+        public void ShowAudioRecorder() => ShowAudioRecorder(false);
+        public void ShowAudioRecorder(bool liveOnly)
+        {
+            if (_audioWin != null) { _audioWin.Activate(); if (liveOnly) _audioWin.SetLiveOnly(true); return; }
+            _audioWin = new AudioRecorderWindow(_settings, _audio, liveOnly);
+            _audioWin.Closed += (o, e) => _audioWin = null;
+            _audioWin.Show();
+        }
+
         public void RequestExit()
         {
-            if (!_recorder.IsRecording) { Application.Current.Shutdown(); return; }
+            if (!_recorder.IsRecording && !_audio.IsRecording && !_live.IsRunning) { Application.Current.Shutdown(); return; }
             _exiting = true;
             Notify(L.T("正在结束录屏并保存，请稍候…"));
             var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             void Done() { timer.Stop(); Application.Current.Shutdown(); }
             _recorder.Completed += _ => Done();
             _recorder.Failed += _ => Done();
+            _audio.Completed += _ => Done();
+            _audio.Failed += _ => Done();
+            _live.Stopped += Done;
+            _live.Failed += _ => Done();
             timer.Tick += (o, e) => { Logger.Info("Exit: recorder did not finish within 5 s"); Done(); };
             timer.Start();
-            _recorder.Stop();
+            if (_recorder.IsRecording) _recorder.Stop();
+            if (_audio.IsRecording) _audio.Stop();
+            if (_live.IsRunning) _live.Stop();
         }
 
         public void Dispose()
         {
             _timed.Stop();
             _hotkeys.Dispose();
+            try { _audio.Dispose(); } catch { }
+            try { _live.Dispose(); } catch { }
             if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         }
     }

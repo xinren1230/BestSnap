@@ -1,0 +1,24 @@
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  base: './',
+  build: {
+    target: 'es2022',
+    cssTarget: 'safari16',
+    chunkSizeWarningLimit: 900,
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 5517,
+    strictPort: true,
+  },
+  worker: {
+    format: 'es',
+  },
+  test: {
+    environment: 'jsdom',
+    include: ['tests/**/*.test.js'],
+    setupFiles: ['tests/setup.js'],
+    testTimeout: 20_000,
+  },
+});

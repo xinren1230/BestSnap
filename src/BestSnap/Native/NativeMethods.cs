@@ -23,10 +23,15 @@ namespace BestSnap.Native
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
         [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+        [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
         [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
         [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr extra);
+        public const byte VK_NEXT = 0x22;
+        public const uint KEYEVENTF_KEYUP = 2;
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
         [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr parent, POINT p, uint flags);
         [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr hWnd, ref POINT p);
@@ -58,6 +63,27 @@ namespace BestSnap.Native
             SendInput(1, new[] { inp }, Marshal.SizeOf<INPUT>());
         }
 
+        /// <summary>Wheel at a screen point: move cursor, SendInput, and PostMessage WM_MOUSEWHEEL to the window under it.</summary>
+        public static void ScrollAt(int screenX, int screenY, int delta)
+        {
+            SetCursorPos(screenX, screenY);
+            SendWheel(delta);
+            var pt = new POINT { X = screenX, Y = screenY };
+            var hwnd = WindowFromPoint(pt);
+            if (hwnd == IntPtr.Zero) return;
+            var client = pt;
+            ScreenToClient(hwnd, ref client);
+            IntPtr wParam = (IntPtr)((delta << 16) & unchecked((int)0xFFFF0000));
+            IntPtr lParam = (IntPtr)((client.Y << 16) | (client.X & 0xFFFF));
+            PostMessage(hwnd, WM_MOUSEWHEEL, wParam, lParam);
+        }
+
+        public static void SendPageDown()
+        {
+            keybd_event(VK_NEXT, 0, 0, UIntPtr.Zero);
+            keybd_event(VK_NEXT, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        }
+
         public static bool IsOwnWindow(IntPtr h)
         {
             if (h == IntPtr.Zero) return false;
@@ -71,6 +97,11 @@ namespace BestSnap.Native
             GetWindowRect(hwnd, out r);
             return r;
         }
+
+        public const int AttachParentProcess = -1;
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AttachConsole(int dwProcessId);
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AllocConsole();
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool FreeConsole();
 
         public static RECT VirtualScreen => new RECT
         {

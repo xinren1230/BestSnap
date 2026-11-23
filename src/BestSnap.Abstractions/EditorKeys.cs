@@ -36,12 +36,17 @@ namespace BestSnap.Plugins
             }
         }
 
-        /// <summary>Single-letter tool keys (currently Eraser = E). Ignored when modifiers are down or the user is typing.</summary>
-        public static bool IsLetterToolKey(string key)
+        /// <summary>Single-letter tool keys: E eraser, P pen, H highlighter. Ignored when modifiers are down or the user is typing.</summary>
+        public static string ToolForKey(string key)
         {
-            if (string.IsNullOrEmpty(key)) return false;
-            return key.Equals("E", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(key)) return null;
+            if (key.Equals("E", StringComparison.OrdinalIgnoreCase)) return "Eraser";
+            if (key.Equals("P", StringComparison.OrdinalIgnoreCase)) return "Pen";
+            if (key.Equals("H", StringComparison.OrdinalIgnoreCase)) return "Highlighter";
+            return null;
         }
+
+        public static bool IsLetterToolKey(string key) => ToolForKey(key) != null;
 
         /// <summary>
         /// Letter tool shortcuts fire only when not typing, no Alt/Ctrl/Shift/Win, and the key is a tool letter.

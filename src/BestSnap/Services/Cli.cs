@@ -31,6 +31,7 @@ namespace BestSnap.Services
         public string Save, Format, Ocr, Out, Latex, Image;
         public bool Clipboard, Record;
         public int Duration;
+        public TranscribeTestArgs TranscribeTest;
 
         public static bool IsCommand(string[] args) => args.Any(a => a.StartsWith("--") && a != "--tray");
 
@@ -41,6 +42,11 @@ namespace BestSnap.Services
             string Next(ref int i, string name) { if (i + 1 >= args.Length) throw new ArgumentException(name + " needs a value"); return args[++i]; }
             int Int(string v, string name) { if (!int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) || n < 0) throw new ArgumentException(name + ": invalid number '" + v + "'"); return n; }
             void Src(string s) { if (o.Source != null) throw new ArgumentException("only one of --fullscreen/--window/--region/--interactive-region"); o.Source = s; }
+            if (TranscribeTestArgs.LooksLike(args))
+            {
+                o.TranscribeTest = TranscribeTestArgs.Parse(args);
+                return o;
+            }
             for (int i = 0; i < args.Length; i++)
             {
                 var a = args[i].ToLowerInvariant();
@@ -97,7 +103,11 @@ namespace BestSnap.Services
             try { o = CliOptions.Parse(args); }
             catch (Exception ex) { Logger.Info("CLI bad args: " + ex.Message); return ExitCodes.BadArgs; }
             if (!await _gate.WaitAsync(0)) return ExitCodes.Busy;
-            try { return o.Record ? await RecordAsync(o) : await CaptureAsync(o); }
+            try
+            {
+                if (o.TranscribeTest != null) return await TranscribeTestAsync(o.TranscribeTest);
+                return o.Record ? await RecordAsync(o) : await CaptureAsync(o);
+            }
             catch (Exception ex) { Logger.Error("CLI", ex); return ExitCodes.Error; }
             finally { _gate.Release(); }
         }
@@ -241,6 +251,95 @@ namespace BestSnap.Services
             finally { border?.Close(); }
         }
 
+        static async Task<int> TranscribeTestAsync(TranscribeTestArgs t)
+        {
+            CliConsole.Ensure();
+            if (t.DebugChunks)
+            {
+                try { Environment.SetEnvironmentVariable("BESTSNAP_DEBUG_WHISPER", "1"); } catch { }
+            }
+            var log = new StringBuilder();
+            void Line(string s)
+            {
+                s ??= "";
+                log.AppendLine(s);
+                CliConsole.WriteLine(s);
+                Logger.Info("TranscribeTest " + s);
+            }
+            string input = Path.GetFullPath(Environment.ExpandEnvironmentVariables((t.Input ?? "").Trim('"')));
+            if (!File.Exists(input))
+            {
+                Line("file not found: " + input);
+                return WriteOut(t, log) ? ExitCodes.Error : ExitCodes.Error;
+            }
+            WhisperBackend? backend;
+            try { backend = t.ParseBackend(); }
+            catch (Exception ex)
+            {
+                Line(ex.Message);
+                WriteOut(t, log);
+                return ExitCodes.BadArgs;
+            }
+            string model = string.IsNullOrWhiteSpace(t.Model) ? "auto" : t.Model.Trim();
+            Line("transcribe-test file=" + input + " model=" + model + " backend=" + (t.Backend ?? "auto") + " live-sim=" + t.LiveSim + " stretch-minutes=" + t.StretchMinutes.ToString("0.##", CultureInfo.InvariantCulture));
+            var decode = new WhisperDecodeSettings { Language = "auto", Live = t.LiveSim, ReuseProcessor = true };
+            try
+            {
+                LivePipelineResult result;
+                if (t.LiveSim)
+                    result = await LiveTranscribeEngine.RunFileAsync(input, model, backend, decode, t.DebugChunks, Line, CancellationToken.None, t.StretchMinutes);
+                else
+                    result = await WhisperTranscriber.TranscribeFileWindowedAsync(input, model, backend, decode, null, null, CancellationToken.None, t.StretchMinutes);
+                result ??= new LivePipelineResult();
+                var cues = result.Cues ?? new List<TranscriptCue>();
+                string plain = TranscriptFormat.PlainText(cues);
+                Line("--- transcript ---");
+                Line(string.IsNullOrWhiteSpace(plain) ? "" : TranscriptFormat.ToTxt(cues).TrimEnd());
+                if (t.LiveSim)
+                {
+                    Line("--- live-sim srt ---");
+                    Line(TranscriptFormat.ToSrt(cues).TrimEnd());
+                }
+                Line("cues=" + cues.Count + " chars=" + (plain ?? "").Length + " dur=" + result.DurationSeconds.ToString("0.##", CultureInfo.InvariantCulture) + "s processed=" + result.Processed + " timedOut=" + result.TimedOut + " maxDecode=" + result.MaxDecodeSeconds.ToString("0.##", CultureInfo.InvariantCulture) + "s ratio=" + result.MaxDecodeRatio.ToString("0.##", CultureInfo.InvariantCulture));
+                string fail = WhisperDecodeBudget.SelfTestFailure(result.Reports, cues, result.DurationSeconds);
+                WriteOut(t, log);
+                if (!string.IsNullOrEmpty(fail))
+                {
+                    Line("self-test failed: " + fail);
+                    WriteOut(t, log);
+                    return ExitCodes.Error;
+                }
+                if (cues.Count == 0 || string.IsNullOrWhiteSpace(plain))
+                {
+                    Line("empty transcript");
+                    WriteOut(t, log);
+                    return ExitCodes.Error;
+                }
+                return ExitCodes.Ok;
+            }
+            catch (Exception ex)
+            {
+                Line("error: " + ex.Message);
+                Logger.Error("TranscribeTest", ex);
+                WriteOut(t, log);
+                return ExitCodes.Error;
+            }
+        }
+
+        static bool WriteOut(TranscribeTestArgs t, StringBuilder log)
+        {
+            if (t == null || string.IsNullOrWhiteSpace(t.Out) || log == null) return false;
+            try
+            {
+                var path = Path.GetFullPath(Environment.ExpandEnvironmentVariables(t.Out.Trim('"')));
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(path, log.ToString(), new UTF8Encoding(false));
+                return true;
+            }
+            catch (Exception ex) { Logger.Error("TranscribeTest.Out", ex); return false; }
+        }
+
         // ---------------- named pipe forwarding ----------------
 
         /// <summary>Client side: send args to the running instance and wait for its exit code. Returns null if no server answered.</summary>
@@ -304,13 +403,47 @@ namespace BestSnap.Services
             for (int i = 0; i + 1 < r.Length; i++)
             {
                 var a = r[i].ToLowerInvariant();
-                if ((a == "--save" || a == "--ocr" || a == "--out" || a == "--latex" || a == "--image") && !string.IsNullOrEmpty(cwd))
+                if ((a == "--save" || a == "--ocr" || a == "--out" || a == "--latex" || a == "--image" || a == "--transcribe-test") && !string.IsNullOrEmpty(cwd))
                 {
                     var p = Environment.ExpandEnvironmentVariables(r[i + 1].Trim('"'));
                     if (!Path.IsPathRooted(p)) r[i + 1] = Path.Combine(cwd, p);
                 }
             }
             return r;
+        }
+    }
+
+    /// <summary>WPF WinExe has no console; attach the parent or allocate one for --transcribe-test.</summary>
+    public static class CliConsole
+    {
+        static bool _ready;
+
+        public static void Ensure()
+        {
+            if (_ready) return;
+            try
+            {
+                if (!NativeMethods.AttachConsole(NativeMethods.AttachParentProcess))
+                    NativeMethods.AllocConsole();
+            }
+            catch { }
+            try
+            {
+                Console.OutputEncoding = new UTF8Encoding(false);
+                Console.InputEncoding = new UTF8Encoding(false);
+                var stdout = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+                Console.SetOut(stdout);
+                var stderr = new StreamWriter(Console.OpenStandardError()) { AutoFlush = true };
+                Console.SetError(stderr);
+            }
+            catch { }
+            _ready = true;
+        }
+
+        public static void WriteLine(string s)
+        {
+            Ensure();
+            try { Console.WriteLine(s ?? ""); } catch { }
         }
     }
 }

@@ -60,3 +60,9 @@ License: MIT
 ffmpeg (runtime dependency, not bundled unless the user installs it)
 https://ffmpeg.org/
 License: LGPL/GPL as provided by the distro package
+
+--------------------------------------------------------------------------
+whisper.cpp / whisper-cli (optional runtime, not bundled)
+https://github.com/ggml-org/whisper.cpp
+License: MIT
+Used for on-device transcription when present on PATH. Models are not shipped.

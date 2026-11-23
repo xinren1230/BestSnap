@@ -31,6 +31,7 @@ namespace BestSnap.Views
         public const string GOcr = "\uE8D2", GFormula = "\uE8EF", GTranslate = "\uE774", GBlur = "\uE7B3", GRedact = "\uE72E", GQr = "\uED14";
         public const string GCopy = "\uE8C8", GSave = "\uE74E", GSaveAs = "\uE792", GUndo = "\uE7A7", GRedo = "\uE7A6";
         public const string GArrow = "\uE1FD", GRect = "\uE739", GText = "\uE8D3", GCrop = "\uE7A8", GMore = "\uE712", GEraser = "\uE75C";
+        public const string GPen = "\uED63", GHighlight = "\uE76D", GScroll = "\uE7C4";
         public const string GPin = "\uE718", GEdit = "\uE70F", GClose = "\uE711", GUpload = "\uE898", GMin = "\uE921", GWatermark = "\uEA18";
 
         /// <summary>" (Ctrl+Shift+O)" for a configured hotkey action, else "".</summary>
