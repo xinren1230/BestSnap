@@ -7,7 +7,7 @@ namespace BestSnap.Plugins
 {
     /// <summary>
     /// Transcript next to the audio file: Rec_xxx.wav → Rec_xxx.txt, UTF-8 with BOM (Notepad / Chinese).
-    /// Follows the temp-then-Save flow: stay beside the temp media; copy on Save; delete on discard.
+    /// Written beside the saved media after an audio-only stop (copied along if the file is promoted from temp).
     /// </summary>
     public static class TranscriptSidecar
     {

@@ -49,6 +49,9 @@ namespace BestSnap.Tests
             Assert.Contains(@"runtimes\win-x64", text);
             Assert.Contains(@"DestDir: ""{app}\runtimes""", text);
             Assert.Contains("recursesubdirs", text);
+            Assert.Contains(@"video-studio", text);
+            Assert.Contains("WebView2Loader.dll", text);
+            Assert.Contains("AGPL", File.ReadAllText(Path.Combine(Directory.GetParent(Path.GetDirectoryName(IssPath)).FullName, "THIRD_PARTY_NOTICES.md")));
             Assert.Contains("whisper.dll", File.ReadAllText(Path.Combine(Directory.GetParent(Path.GetDirectoryName(IssPath)).FullName, "build.ps1")));
         }
 
@@ -73,6 +76,12 @@ namespace BestSnap.Tests
             Assert.Contains("cuda", text);
             Assert.Contains("vulkan", text);
             Assert.Contains("Filter *.dll", text);
+            Assert.Contains("Build-VideoStudio", text);
+            Assert.Contains("npm ci", text);
+            Assert.Contains("npm run build", text);
+            Assert.Contains("third_party\\video-studio", text);
+            Assert.Contains("video-studio", text);
+            Assert.Contains("WebView2Loader.dll", text);
             Assert.DoesNotContain(".pfx", text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("password", text, StringComparison.OrdinalIgnoreCase);
         }

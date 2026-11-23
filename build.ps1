@@ -115,6 +115,29 @@ $FormulaModels = @(
     @{ Name = "tokenizer.json";     Sha256 = "3e2ab757277d22639bec28c9d7972e352d3d1dba223051fa674002dc5ab64df3"; Size = 39161L }
 )
 
+# 0) vendored Video Studio (AGPL-3.0) -> dist for WebView2 host
+function Build-VideoStudio {
+    $vs = Join-Path $PSScriptRoot "third_party\video-studio"
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        throw "Node.js 22.12+ is required to build the embedded video editor (third_party/video-studio)."
+    }
+    Push-Location $vs
+    try {
+        if (Test-Path -LiteralPath "package-lock.json") { npm ci }
+        else { npm install }
+        if ($LASTEXITCODE) { throw "npm ci failed for video-studio" }
+        npm run build
+        if ($LASTEXITCODE) { throw "video-studio vite build failed" }
+    } finally { Pop-Location }
+    $dist = Join-Path $vs "dist"
+    if (-not (Test-Path -LiteralPath (Join-Path $dist "index.html"))) {
+        throw "video-studio build did not produce dist/index.html"
+    }
+    return $dist
+}
+$vsDist = Build-VideoStudio
+
 # 1) OCR / face / webcam plugin (+ WinRT projection) -> rt\plugins\BestSnap.Ocr
 dotnet publish src\BestSnap.Ocr -c $Configuration -r win-x64 --self-contained false -o "$rt\plugins\BestSnap.Ocr"
 if ($LASTEXITCODE) { throw "plugin publish failed" }
@@ -149,9 +172,23 @@ if ($LASTEXITCODE) { throw "final publish failed" }
 # exe (ExcludeFromSingleFile). Deleting everything except BestSnap.exe left natives only in
 # %TEMP%\.net\BestSnap\<hash>\runtimes\..., which the loader does not search.
 $whisperNatives = @("whisper.dll", "ggml-whisper.dll", "ggml-base-whisper.dll", "ggml-cpu-whisper.dll")
+$webviewLoaderKeep = Join-Path $PSScriptRoot "stage-webview2loader.dll"
+Remove-Item -LiteralPath $webviewLoaderKeep -Force -ErrorAction SilentlyContinue
+$webviewLoader = Get-ChildItem publish -Filter WebView2Loader.dll -Recurse -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if ($webviewLoader) { Copy-Item -LiteralPath $webviewLoader.FullName $webviewLoaderKeep -Force }
 Get-ChildItem publish | ForEach-Object {
     if ($_.Name -eq "BestSnap.exe" -or $_.Name -eq "runtimes") { return }
     Remove-Item $_.FullName -Recurse -Force
+}
+$vsPublish = Join-Path "publish" "video-studio"
+Copy-Item $vsDist $vsPublish -Recurse -Force
+if (-not (Test-Path -LiteralPath (Join-Path $vsPublish "index.html"))) {
+    throw "publish missing video-studio\index.html"
+}
+if (Test-Path -LiteralPath $webviewLoaderKeep) {
+    Copy-Item -LiteralPath $webviewLoaderKeep (Join-Path "publish" "WebView2Loader.dll") -Force
+    Remove-Item -LiteralPath $webviewLoaderKeep -Force -ErrorAction SilentlyContinue
 }
 $rtRoot = Join-Path "publish" "runtimes"
 if (-not (Test-Path -LiteralPath $rtRoot)) {
@@ -203,6 +240,13 @@ Sign-RuntimeDlls (Join-Path $payload "runtimes")
 Copy-Item (Join-Path $PSScriptRoot "LICENSE") (Join-Path $payload "LICENSE")
 Copy-Item (Join-Path $PSScriptRoot "NOTICE") (Join-Path $payload "NOTICE")
 Copy-Item (Join-Path $PSScriptRoot "installer\licenses") (Join-Path $payload "licenses") -Recurse
+$vsLicense = Join-Path $payload "licenses\video-studio"
+New-Item -ItemType Directory -Force $vsLicense | Out-Null
+Copy-Item (Join-Path $PSScriptRoot "third_party\video-studio\LICENSE") (Join-Path $vsLicense "LICENSE")
+Copy-Item (Join-Path $PSScriptRoot "third_party\video-studio\NOTICE") (Join-Path $vsLicense "NOTICE")
+Copy-Item (Join-Path "publish" "video-studio") (Join-Path $payload "video-studio") -Recurse -Force
+$loaderPub = Join-Path "publish" "WebView2Loader.dll"
+if (Test-Path -LiteralPath $loaderPub) { Copy-Item $loaderPub (Join-Path $payload "WebView2Loader.dll") }
 
 foreach ($m in $FormulaModels) {
     Save-VerifiedFile -Url "$hf/$($m.Name)" -Dest (Join-Path $cache $m.Name) -ExpectedSha256 $m.Sha256 -ExpectedSize $m.Size

@@ -151,7 +151,6 @@ namespace BestSnap.Views
             micVol.SetBinding(Slider.ValueProperty, new Binding(nameof(vm.RecordMicVolume)));
             Row(gRecA, L.T("麦克风"), micVol);
             Row(gRecA, "", C(L.T("录制区域时显示边框（不会被录进去）"), nameof(vm.RecordShowRegionBorder)));
-            Row(gRecA, "", C(L.T("录制完成后打开剪辑预览（需要 OCR/媒体插件）"), nameof(vm.RecordTrimAfter)));
             Row(gRecA, "", C(L.T("画中画：叠加摄像头"), nameof(vm.RecordWebcamEnabled)));
             Row(gRecA, L.T("位置"), Combo(SettingsViewModel.WebcamCornerNames, nameof(vm.RecordWebcamCorner), "Value"));
             Row(gRecA, L.T("大小"), Combo(SettingsViewModel.WebcamSizeChoices, nameof(vm.RecordWebcamSize)));

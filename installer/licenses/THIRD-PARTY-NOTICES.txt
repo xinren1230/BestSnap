@@ -127,3 +127,13 @@ runtime redistributable components as produced by `dotnet publish
 Inno Setup (used only to produce this installer; not part of BestSnap)
 https://jrsoftware.org/isinfo.php
 License: Inno Setup License
+
+--------------------------------------------------------------------------
+Video Studio (modified copy, embedded video editor)
+https://github.com/HeyPuter/everything (original src/video-studio)
+Copyright (c) 2026 Puter Technologies Inc.
+License: GNU Affero General Public License v3.0 only
+A complete LICENSE and a NOTICE describing BestSnap's modifications are
+installed next to this file in licenses\video-studio\. The rest of BestSnap
+remains Apache-2.0. The editor is hosted from {app}\video-studio\ (no
+network). Captions use BestSnap's on-device Whisper.

@@ -39,8 +39,17 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Unit tests
         run: dotnet test src/BestSnap.Tests/BestSnap.Tests.csproj -c Release --nologo
+
+      - name: Video editor host-SDK scan
+        working-directory: third_party/video-studio
+        run: npm ci && npm test
 
       - name: Package with build.ps1
         shell: pwsh

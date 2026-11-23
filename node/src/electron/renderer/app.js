@@ -775,16 +775,16 @@ async function doneView() {
   document.documentElement.style.background = "#f6f6f7";
   let file = q.get("file") || "";
   const live = q.get("live") === "1";
-  const plan = file ? await sf.invoke("trim:plan", file) : { canTrim: false };
+  const plan = file ? await sf.invoke("trim:plan", file) : { canTrim: false, audio: false };
+  const audio = live || plan.audio;
   app.className = "page";
-  app.innerHTML = `<h1>${live ? "仅转写（不保存音频）" : "录制完成"}</h1>
-    <p id="banner">${live ? "音频未保存。可复制或导出文本。" : "录音尚未保存到你的文件夹。关闭前请点“保存”。"}</p>
+  app.innerHTML = `<h1>${live ? "仅转写（不保存音频）" : "录制已保存"}</h1>
+    <p id="banner">${live ? "音频未保存。可复制或导出文本。" : "已保存到"}</p>
     <p><code id="p">${file}</code></p>
     <p>
-      <button id="folder" ${file ? "" : "disabled"}>打开文件夹</button>
+      <button id="folder" ${file ? "" : "disabled"}>打开文件位置</button>
       <button id="open" ${file ? "" : "disabled"}>打开文件</button>
-      <button id="trim" ${plan.canTrim ? "" : "disabled"}>剪辑</button>
-      <button id="save" ${live ? "disabled" : ""}>保存</button>
+      ${audio ? "" : `<button id="edit" ${file ? "" : "disabled"}>编辑视频</button>`}
     </p>
     <p>
       <button id="tx">转写</button>
@@ -799,11 +799,8 @@ async function doneView() {
   const st = (t) => { document.getElementById("st").textContent = t; };
   document.getElementById("folder").onclick = () => sf.invoke("shell:show", file);
   document.getElementById("open").onclick = () => sf.invoke("shell:open", file);
-  document.getElementById("trim").onclick = () => sf.invoke("view:open", "trim", { file });
-  document.getElementById("save").onclick = async () => {
-    const dest = await sf.invoke("record:saveAs", file);
-    if (dest) { file = dest; document.getElementById("p").textContent = dest; st("已保存: " + dest); }
-  };
+  const editBtn = document.getElementById("edit");
+  if (editBtn) editBtn.onclick = () => sf.invoke("view:open", "trim", { file });
   let cues = [];
   try { cues = JSON.parse(q.get("cues") || "[]"); } catch { cues = []; }
   const render = (text) => { document.getElementById("out").textContent = text; };
@@ -895,9 +892,8 @@ async function audioView() {
       sf.invoke("view:open", "done", { live: "1", cues: JSON.stringify(cues || []) });
       return;
     }
-    await sf.invoke("record:audioStop");
+    const file = await sf.invoke("record:audioStop");
     rec = false;
-    const file = document.getElementById("st").textContent;
     if (file) sf.invoke("view:open", "done", { file });
   };
 }

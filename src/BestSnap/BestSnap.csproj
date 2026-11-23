@@ -46,6 +46,7 @@
     <PackageReference Include="ZXing.Net" Version="0.16.9" />
     <!-- LaTeX preview in the formula result window (MIT) -->
     <PackageReference Include="WpfMath" Version="2.1.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2849.39" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\BestSnap.Abstractions\BestSnap.Abstractions.csproj" />
@@ -71,6 +72,7 @@
       <!-- Whisper.cpp natives (CPU + optional CUDA/Vulkan): loader looks in {exeDir}/runtimes/..., not the single-file extract dir. -->
       <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)'=='whisper.dll' or '%(Filename)'=='ggml-whisper' or '%(Filename)'=='ggml-base-whisper' or '%(Filename)'=='ggml-cpu-whisper' or '%(Filename)'=='ggml-cuda-whisper' or '%(Filename)'=='ggml-vulkan-whisper'" ExcludeFromSingleFile="true" />
       <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Extension)'=='.dll' and $([System.String]::Copy('%(RelativePath)').Replace('\','/').Contains('runtimes/'))" ExcludeFromSingleFile="true" />
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)'=='WebView2Loader.dll'" ExcludeFromSingleFile="true" />
     </ItemGroup>
   </Target>
 </Project>

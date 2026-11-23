@@ -255,7 +255,14 @@ namespace BestSnap.Views
         void OnDone(string file)
         {
             _sw.Stop(); Sync();
-            new RecordingDoneWindow(file, _svc).Show();
+            string saved = file;
+            try { saved = RecordingCommit.SaveNow(file, _svc); }
+            catch (Exception ex)
+            {
+                Logger.Error("AudioSave", ex);
+                MessageBox.Show(this, L.T("录音已完成，但保存失败：\n") + ex.Message, AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            RecordingCommit.ShowSaved(saved, _svc);
         }
 
         void OnFail(string err)

@@ -59,8 +59,11 @@ namespace BestSnap.Services
                 TempRecordingStore.Cleanup(folder, TempRecordingStore.DefaultMaxAge, DateTime.UtcNow);
                 var ready = TempRecordingStore.ListReady(folder);
                 if (ready.Count == 0) return;
-                Notify(string.Format(L.T("发现 {0} 个未保存的临时录音。"), ready.Count));
-                new RecordingDoneWindow(ready[ready.Count - 1], _settings).Show();
+                Notify(string.Format(L.T("发现 {0} 个未保存的临时录音，已写入保存文件夹。"), ready.Count));
+                string last = null;
+                foreach (var f in ready)
+                    last = RecordingCommit.SaveNow(f, _settings);
+                if (!string.IsNullOrEmpty(last)) RecordingCommit.ShowSaved(last, _settings);
             }
             catch (Exception ex) { Logger.Error("TempRecover", ex); }
         }
@@ -474,10 +477,18 @@ namespace BestSnap.Services
         private void OnRecordingCompleted(string file)
         {
             CloseRecBar();
-            try { TempRecordingStore.MarkComplete(file, DateTime.UtcNow); } catch { }
-            Notify(L.T("录屏已完成（尚未保存）") + ": " + file);
+            string saved = file;
+            try { saved = RecordingCommit.SaveNow(file, _settings); }
+            catch (Exception ex)
+            {
+                Logger.Error("RecordingSave", ex);
+                Notify(L.T("录屏已完成，但保存失败") + ": " + ex.Message);
+                if (!_exiting) RecordingCommit.ShowSaved(file, _settings);
+                return;
+            }
+            Notify(L.T("录屏已保存") + ": " + saved);
             if (_exiting) return;
-            new RecordingDoneWindow(file, _settings).Show();
+            RecordingCommit.ShowSaved(saved, _settings);
         }
 
         private void OnRecordingFailed(string error)

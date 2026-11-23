@@ -1,0 +1,454 @@
+// Leaving the editor: edits and media that could not be saved are not
+// dropped without asking.
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Library } from '../src/storage/library.js';
+import { memoryBackend } from '../src/storage/backends.js';
+import { Editor } from '../src/ui/editor.js';
+import { MediaService } from '../src/media/media-service.js';
+import { fixture, clip, onMain } from './helpers.js';
+
+const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+const dialog = () => document.querySelector('dialog[open]');
+const button = (label) => [...(dialog()?.querySelectorAll('button') || [])].find((b) => b.textContent === label);
+
+let root;
+let editor;
+beforeEach(() => {
+  document.body.replaceChildren();
+  root = document.createElement('div');
+  root.id = 'app';
+  document.body.append(root, Object.assign(document.createElement('div'), { id: 'live-region' }));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => {
+  if (editor && !editor._disposed) editor.dispose();
+  editor = null;
+  vi.restoreAllMocks();
+});
+
+async function open() {
+  const backend = memoryBackend();
+  const library = new Library(backend);
+  const p = fixture();
+  onMain(p, clip('video', 0, 4));
+  await library.saveProject(p);
+  const onExit = vi.fn();
+  editor = new Editor(root, { library, project: p, account: {}, onExit, onNewProject() {} });
+  await settle();
+  return { backend, library, onExit, p };
+}
+
+const rename = (name) => editor.store.update('Rename', (x) => { x.name = name; }, { structural: false });
+
+describe('leaving the editor', () => {
+  it('saves and leaves when the save works', async () => {
+    const { library, onExit, p } = await open();
+    rename('Saved name');
+    await editor.exit();
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).name).toBe('Saved name');
+  });
+
+  it('saves an edit made while the cover picture is being saved on the way out', async () => {
+    const { library, onExit, p } = await open();
+    rename('Before the cover');
+    let finish;
+    vi.spyOn(editor, 'saveCover').mockImplementation(() => new Promise((r) => (finish = r)));
+    const leaving = editor.exit();
+    await vi.waitFor(() => expect(finish).toBeTruthy());
+    rename('During the cover');
+    finish();
+    await leaving;
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).name).toBe('During the cover');
+  });
+
+  it('waits for files being imported, so they are in the saved project', async () => {
+    const { library, onExit, p } = await open();
+    // Reading the file takes a moment; the user leaves meanwhile.
+    let finish;
+    const read = new Promise((r) => (finish = r));
+    vi.spyOn(library, 'importFile').mockImplementation(async (file) => {
+      await read;
+      return { id: 'a_new', kind: 'image', name: file.name, hash: 'h9', ext: 'png', width: 4, height: 4, added: 1 };
+    });
+    const importing = editor.ctx.actions.importFiles([new File(['x'], 'late.png', { type: 'image/png' })]);
+    const leaving = editor.exit();
+    await settle();
+    expect(onExit).not.toHaveBeenCalled();
+    finish();
+    await importing;
+    await leaving;
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).assets.a_new?.name).toBe('late.png');
+  });
+
+  it('frees the editor once when leaving and the next screen both dispose it', async () => {
+    const { onExit } = await open();
+    const media = vi.spyOn(editor.media, 'dispose');
+    const proxies = vi.spyOn(editor.proxies, 'dispose');
+    const player = vi.spyOn(editor.ctx.player, 'dispose');
+    onExit.mockImplementation(() => editor.dispose());
+    await editor.exit();
+    expect(onExit).toHaveBeenCalled();
+    expect([media.mock.calls.length, proxies.mock.calls.length, player.mock.calls.length]).toEqual([1, 1, 1]);
+  });
+
+  it('stays open after a failed save when the user chooses to stay, and keeps retrying', async () => {
+    const { backend, library, onExit, p } = await open();
+    rename('Unsaved name');
+    backend.failNext = 1;
+    const leaving = editor.exit();
+    await settle();
+    expect(dialog()?.textContent).toContain("Couldn't save your changes");
+    expect(document.activeElement).toBe(button('Stay'));
+    button('Stay').click();
+    expect(await leaving).toBe(false);
+    expect(onExit).not.toHaveBeenCalled();
+    expect(editor._disposed).toBeFalsy();
+    expect(editor.saver.timer).toBeTruthy();
+    // Leaving again once the connection is back saves without asking.
+    await editor.exit();
+    expect(dialog()).toBeFalsy();
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).name).toBe('Unsaved name');
+  });
+
+  it('leaves after a failed save only when the user confirms', async () => {
+    const { backend, onExit } = await open();
+    rename('Lost name');
+    backend.failNext = 1;
+    const leaving = editor.exit();
+    await settle();
+    button('Leave anyway').click();
+    await leaving;
+    expect(onExit).toHaveBeenCalled();
+    expect(editor._disposed).toBe(true);
+  });
+
+  it('asks once when leaving is requested twice', async () => {
+    const { backend, onExit } = await open();
+    rename('x');
+    backend.failNext = 1;
+    const a = editor.exit();
+    const b = editor.exit();
+    await settle();
+    expect(document.querySelectorAll('dialog[open]').length).toBe(1);
+    button('Leave anyway').click();
+    await Promise.all([a, b]);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('still checks uploads when closing the page overlaps leaving for Home', async () => {
+    const { library } = await open();
+    let finish;
+    vi.spyOn(editor.saver, 'flush').mockImplementationOnce(() => new Promise((r) => (finish = r)));
+    vi.spyOn(library, 'unsavedMedia', 'get').mockReturnValue(1);
+    const uploads = vi.spyOn(library, 'flushUploads').mockResolvedValue(false);
+    const home = editor.prepareToLeave();
+    const page = editor.prepareToLeave({ waitForUploads: true });
+    const anotherClose = editor.prepareToLeave({ waitForUploads: true });
+    finish();
+    await vi.waitFor(() => expect(dialog()?.textContent).toContain("1 media file couldn't be saved"));
+    button('Stay').click();
+    expect(await page).toBe(false);
+    expect(await anotherClose).toBe(false);
+    await home;
+    expect(uploads).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for a successful upload after an overlapping editor-only save', async () => {
+    const { library } = await open();
+    let saved, uploaded;
+    vi.spyOn(editor.saver, 'flush').mockImplementationOnce(() => new Promise((r) => (saved = r)));
+    vi.spyOn(library, 'unsavedMedia', 'get').mockReturnValue(1);
+    const uploads = vi.spyOn(library, 'flushUploads').mockImplementation(() => new Promise((r) => (uploaded = r)));
+    const home = editor.prepareToLeave();
+    let closed = false;
+    const page = editor.prepareToLeave({ waitForUploads: true }).then((ok) => { closed = ok; return ok; });
+    saved();
+    await home;
+    await vi.waitFor(() => expect(uploads).toHaveBeenCalledTimes(1));
+    expect(closed).toBe(false);
+    uploaded(true);
+    expect(await page).toBe(true);
+    expect(dialog()).toBeNull();
+  });
+
+  it('honors Stay from an editor save when a page close is also waiting', async () => {
+    const { library, backend } = await open();
+    rename('Unsaved');
+    backend.failNext = 1;
+    const uploads = vi.spyOn(library, 'flushUploads');
+    const home = editor.prepareToLeave();
+    const page = editor.prepareToLeave({ waitForUploads: true });
+    await vi.waitFor(() => expect(button('Stay')).toBeTruthy());
+    button('Stay').click();
+    expect(await home).toBe(false);
+    expect(await page).toBe(false);
+    expect(uploads).not.toHaveBeenCalled();
+  });
+
+  it('asks before the page closes with a media file that could not be uploaded, and shows it in the title bar', async () => {
+    const { library } = await open();
+    library.backend.failNext = 2; // the media listing and the write
+    library._store({ hash: 'h1', ext: 'mp4', name: 'clip.mp4' }, new Blob(['x']));
+    await settle();
+    expect(root.querySelector('.upload-status').textContent).toBe('1 media file not uploaded. Retrying...');
+    library.backend.failNext = 2;
+    const leaving = editor.prepareToLeave({ waitForUploads: true });
+    await settle();
+    expect(dialog()?.textContent).toContain("1 media file couldn't be saved");
+    button('Stay').click();
+    expect(await leaving).toBe(false);
+    // Back to the home screen keeps the upload going: no question.
+    expect(await editor.prepareToLeave()).toBe(true);
+    expect(library.unsavedMedia).toBe(1);
+  });
+});
+
+describe('closing the editor', () => {
+  it('stops listening to the library, which outlives it', async () => {
+    const library = new Library(memoryBackend());
+    const subs = [];
+    const on = library.on.bind(library);
+    library.on = (type, fn) => {
+      const off = on(type, fn);
+      const sub = { type, off: false };
+      subs.push(sub);
+      return () => {
+        sub.off = true;
+        off();
+      };
+    };
+    const p = fixture();
+    await library.saveProject(p);
+    editor = new Editor(root, { library, project: p, account: {}, onExit() {}, onNewProject() {} });
+    await settle();
+    expect(subs.some((s) => s.type === 'uploads')).toBe(true);
+    editor.dispose();
+    expect(subs.filter((s) => !s.off)).toEqual([]);
+  });
+
+  it('closes the media posters it made', async () => {
+    const svc = new MediaService(null);
+    const ready = { close: vi.fn() };
+    const late = { close: vi.fn() };
+    let finish;
+    svc.posters.set('a', { value: ready, promise: Promise.resolve(ready) });
+    svc.posters.set('b', { value: null, promise: new Promise((r) => (finish = r)) });
+    svc.dispose();
+    expect(ready.close).toHaveBeenCalled();
+    finish(late);
+    await settle(0);
+    expect(late.close).toHaveBeenCalled();
+    expect(svc.posters.size).toBe(0);
+  });
+});
+
+describe('opening the editor', () => {
+  it('checks for missing media files and marks them in the media panel', async () => {
+    const library = new Library(memoryBackend());
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    p.assets.vid.hash = 'hv';
+    p.assets.vid.ext = 'mp4';
+    for (const id of ['silent', 'aud', 'img']) delete p.assets[id];
+    await library.saveProject(p);
+    editor = new Editor(root, { library, project: p, account: {}, onExit() {}, onNewProject() {} });
+    await settle(150);
+    expect(editor.media.missing.has('hv')).toBe(true);
+    root.querySelector('[data-cat="project"]')?.click();
+    await settle(50);
+    expect(root.querySelector('.tile-sub.missing')?.dataset.text).toBe('File missing');
+  });
+});
+
+describe('closing the page', () => {
+  it('asks the browser to warn about unsaved edits, unless leaving was already chosen', async () => {
+    await open();
+    editor.store.update('Edit', (p) => void (p.name = 'Changed'));
+    const unload = () => {
+      const e = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(unload()).toBe(true);
+    editor.pageLeaving = true;
+    expect(unload()).toBe(false);
+  });
+});
+
+describe('a failed save where the status has no room', () => {
+  const errorToasts = () => [...document.querySelectorAll('.toast.error:not(.leaving)')].map((t) => t.textContent);
+
+  it('says so once in a toast, and takes it away when a save works again', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    editor.saver.emit('status', { status: 'error' });
+    editor.saver.emit('status', { status: 'saving' }); // the retry...
+    editor.saver.emit('status', { status: 'error' }); // ...failed too: still one note
+    expect(errorToasts()).toEqual(["Couldn't save your changes. Retrying..."]);
+    expect(document.querySelectorAll('.toast.error')).toHaveLength(1); // not taken away and shown again
+    editor.saver.emit('status', { status: 'saved', at: Date.now() });
+    await settle(250);
+    expect(errorToasts()).toEqual([]);
+  });
+
+  it('leaves it to the status where the status shows', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const status = root.querySelector('.save-status');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function w() {
+      return this === status ? 240 : 0;
+    });
+    editor.saver.emit('status', { status: 'error' });
+    expect(status.textContent).toBe("Couldn't save. Retrying...");
+    expect(errorToasts()).toEqual([]);
+  });
+
+  it('says when saving failed because the storage is full', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const status = root.querySelector('.save-status');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function w() {
+      return this === status ? 240 : 0;
+    });
+    editor.saver.emit('status', { status: 'error', error: new DOMException('The quota has been exceeded.', 'QuotaExceededError') });
+    expect(status.textContent).toBe("Storage is full. Free up space to save.");
+    // Phones: the note says it too.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+    editor.saver.emit('status', { status: 'saved', at: Date.now() });
+    editor.saver.emit('status', { status: 'error', error: Object.assign(new Error('Storage capacity exceeded'), { code: 'storage_limit_reached' }) });
+    expect(errorToasts()).toEqual(["Couldn't save your changes: your storage is full. Free up space to keep saving."]);
+  });
+});
+
+describe('pending replacement and file reads', () => {
+  it('saves a replacement that finishes reading while leaving for Home', async () => {
+    const { library, onExit, p } = await open();
+    let finish;
+    const reading = new Promise(resolve => { finish = resolve; });
+    const replacement = { ...p.assets.vid, id: 'replacement', hash: 'replacement-hash', name: 'New take.mp4' };
+    vi.spyOn(library, 'importFile').mockImplementation(async () => { await reading; return replacement; });
+    vi.spyOn(editor, 'saveCover').mockResolvedValue();
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function () {
+      Object.defineProperty(this, 'files', { value: [new File(['video'], 'New take.mp4', { type: 'video/mp4' })] });
+      this.dispatchEvent(new Event('change'));
+    });
+    const replacing = editor.ctx.actions.replaceAssetFile('vid');
+    await vi.waitFor(() => expect(library.importFile).toHaveBeenCalled());
+    const leaving = editor.exit();
+    try {
+      await settle();
+      expect(onExit).not.toHaveBeenCalled();
+    } finally {
+      finish();
+      await replacing;
+      await leaving;
+    }
+    const saved = await library.openProject(p.id);
+    expect(saved.tracks[0].clips[0].assetId).toBe('replacement');
+    expect(saved.assets.replacement.name).toBe('New take.mp4');
+    expect(saved.assets.vid).toBeUndefined();
+    expect(editor.ctx.imports.size).toBe(0);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns on page closing while an import is reading before any edit or upload exists', async () => {
+    const { library, p } = await open();
+    let finish;
+    const reading = new Promise(resolve => { finish = resolve; });
+    vi.spyOn(library, 'importFile').mockImplementation(async () => {
+      await reading;
+      return { ...p.assets.img, id: 'new-image', hash: 'new-image-hash' };
+    });
+    const importing = editor.ctx.actions.importFiles([new File(['image'], 'Photo.png', { type: 'image/png' })]);
+    expect(editor.store.dirty).toBe(false);
+    expect(library.unsavedMedia).toBe(0);
+    const unload = () => {
+      const e = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    try {
+      expect(unload()).toBe(true);
+      editor.pageLeaving = true;
+      expect(unload()).toBe(false);
+      editor.pageLeaving = false;
+    } finally {
+      finish();
+      await importing;
+    }
+    await editor.saver.flush();
+    expect(unload()).toBe(false);
+  });
+});
+
+describe('imports started while leaving', () => {
+  it.each(['another import', 'project save', 'cover save'])('waits for an import started during %s', async phase => {
+    const { library, onExit, p } = await open();
+    let releasePhase, releaseImport, entered = false;
+    const phaseGate = new Promise(resolve => { releasePhase = resolve; });
+    const importGate = new Promise(resolve => { releaseImport = resolve; });
+    vi.spyOn(library, 'importFile').mockImplementation(async file => {
+      const initial = file.name === 'First.png';
+      if (initial) { entered = true; await phaseGate; } else await importGate;
+      return { ...p.assets.img, id: initial ? 'first' : 'late', hash: initial ? 'first-hash' : 'late-hash', name: file.name };
+    });
+    let first;
+    if (phase === 'another import') first = editor.ctx.actions.importFiles([new File(['a'], 'First.png', { type: 'image/png' })]);
+    if (phase === 'project save') {
+      const flush = editor.saver.flush.bind(editor.saver);
+      vi.spyOn(editor.saver, 'flush').mockImplementationOnce(async () => { entered = true; await phaseGate; return flush(); });
+    }
+    vi.spyOn(editor, 'saveCover').mockImplementation(async () => {
+      if (phase === 'cover save') { entered = true; await phaseGate; }
+    });
+    const leaving = editor.exit();
+    await vi.waitFor(() => expect(entered).toBe(true));
+    const importing = editor.ctx.actions.importFiles([new File(['b'], 'Late.png', { type: 'image/png' })]);
+    releasePhase();
+    try {
+      await settle();
+      expect(onExit).not.toHaveBeenCalled();
+    } finally {
+      releaseImport();
+      await Promise.all([first, importing, leaving]);
+    }
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect((await library.openProject(p.id)).assets.late.name).toBe('Late.png');
+    expect(editor.ctx.imports.size).toBe(0);
+  });
+});
+
+it.each([false, true])('saves an import started during page-close uploads (overlapping Home: %s)', async overlap => {
+  const { library, p } = await open();
+  let releaseSave, releaseUpload, releaseImport, uploading = false;
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  const uploadGate = new Promise(resolve => { releaseUpload = resolve; });
+  const importGate = new Promise(resolve => { releaseImport = resolve; });
+  const flush = editor.saver.flush.bind(editor.saver);
+  vi.spyOn(editor.saver, 'flush').mockImplementationOnce(async () => { await saveGate; return flush(); });
+  vi.spyOn(library, 'flushUploads').mockImplementationOnce(async () => { uploading = true; await uploadGate; return true; }).mockResolvedValue(true);
+  vi.spyOn(library, 'importFile').mockImplementation(async () => {
+    await importGate;
+    return { ...p.assets.img, id: 'late-upload-phase', hash: 'late-upload-phase-hash' };
+  });
+  const home = overlap ? editor.prepareToLeave() : null;
+  let closed = false;
+  const page = editor.prepareToLeave({ waitForUploads: true }).then(ok => { closed = ok; return ok; });
+  releaseSave();
+  await vi.waitFor(() => expect(uploading).toBe(true));
+  const importing = editor.ctx.actions.importFiles([new File(['image'], 'Late.png', { type: 'image/png' })]);
+  releaseUpload();
+  try {
+    await settle();
+    expect(closed).toBe(false);
+  } finally {
+    releaseImport();
+    await Promise.all([home, page, importing]);
+  }
+  expect((await library.openProject(p.id)).assets['late-upload-phase']).toBeTruthy();
+  expect(library.flushUploads).toHaveBeenCalledTimes(2);
+});

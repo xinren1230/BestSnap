@@ -80,6 +80,9 @@ Source: "{#PayloadDir}\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PayloadDir}\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Formula models for offline first launch. Incomplete plugins\ must never be created here.
 Source: "{#PayloadDir}\models\pix2text-mfr\*"; DestDir: "{app}\models\pix2text-mfr"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Vendored Video Studio (AGPL-3.0) — built files hosted by WebView2 from {app}\video-studio.
+Source: "{#PayloadDir}\video-studio\*"; DestDir: "{app}\video-studio"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PayloadDir}\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [InstallDelete]
 ; LEGACY MIGRATION: remove leftover SnapForge.exe / shortcuts from the previous product name.

@@ -480,6 +480,19 @@
   "鼠标与按键": "Ratón y teclas",
   "编码": "Codificación",
   "文件名": "Nombre de archivo",
-  "按开始时间自动命名": "nombre automático según la hora de inicio"
+  "按开始时间自动命名": "nombre automático según la hora de inicio",
+  "已保存到": "Guardado en",
+  "打开文件位置": "Abrir ubicación del archivo",
+  "编辑视频": "Editar vídeo",
+  "录制已保存": "Grabación guardada",
+  "录屏已保存": "Grabación de pantalla guardada",
+  "录屏已完成，但保存失败": "La grabación terminó, pero no se pudo guardar",
+  "录音已完成，但保存失败：\n": "La grabación terminó, pero no se pudo guardar:\n",
+  "无法打开视频编辑器：\n": "No se pudo abrir el editor de vídeo:\n",
+  "找不到编辑器文件。": "No se encontraron los archivos del editor.",
+  "未安装 WebView2 运行时或找不到编辑器文件，无法打开视频编辑。": "Falta WebView2 o no se encuentran los archivos del editor.",
+  "视频编辑": "Edición de vídeo",
+  "发现 {0} 个未保存的临时录音，已写入保存文件夹。": "Se encontraron {0} grabación(es) temporal(es); se guardaron en tu carpeta.",
+  "停止后立即保存到该文件夹": "se guarda en esta carpeta al detener"
  }
 }

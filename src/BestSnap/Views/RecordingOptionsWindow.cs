@@ -151,7 +151,7 @@ namespace BestSnap.Views
                 Field(L.T("保存到"), fp, stretch: true),
                 Field(L.T("文件名"), _fileHint, stretch: true),
                 Section(L.T("格式"), Inline(_fMp4Out, _fGifOut)),
-                _trim, _remember);
+                _remember);
 
             var tabs = SmartUi.SegmentTabs(
                 (L.T("视频"), video),
@@ -193,7 +193,7 @@ namespace BestSnap.Views
                 _fps.IsEnabled = _quality.IsEnabled = !gif; _gifFps.IsEnabled = _gifWidth.IsEnabled = gif;
                 _clicks.IsEnabled = !gif;
                 string ext = gif ? ".gif" : ".mp4";
-                _fileHint.Text = "Rec_yyyyMMdd_HHmmss" + ext + "  " + L.T("先写入临时文件，完成后再另存");
+                _fileHint.Text = "Rec_yyyyMMdd_HHmmss" + ext + "  " + L.T("停止后立即保存到该文件夹");
             }
             bool syncingFmt = false;
             void BindFmt(RadioButton srcMp4, RadioButton srcGif, RadioButton dstMp4, RadioButton dstGif)

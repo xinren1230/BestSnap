@@ -6,8 +6,8 @@ using System.IO;
 namespace BestSnap.Plugins
 {
     /// <summary>
-    /// Unsaved recordings live under %LocalAppData%\BestSnap\temp\recordings until the user clicks Save.
-    /// Crash-safe: media stays on disk; a sidecar marks completion. Stale files (default 7 days) are deleted on startup.
+    /// In-progress recordings live under %LocalAppData%\BestSnap\temp\recordings until stop, then they are
+    /// moved into the user's save folder. Crash-safe: a sidecar marks completion. Stale files (default 7 days) are deleted on startup.
     /// </summary>
     public static class TempRecordingStore
     {

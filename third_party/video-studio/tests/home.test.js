@@ -1,0 +1,480 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Library, TRASH_DAYS } from '../src/storage/library.js';
+import { memoryBackend } from '../src/storage/backends.js';
+import { Home, daysLeft, formatSize } from '../src/ui/home.js';
+import { TEMPLATES } from '../src/model/templates.js';
+import { setPref } from '../src/ui/prefs.js';
+
+const DAY = 24 * 60 * 60 * 1000;
+const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+
+let root;
+let home;
+beforeEach(() => {
+  document.body.replaceChildren();
+  history.replaceState(null, '', '/');
+  root = document.createElement('div');
+  document.body.append(root, Object.assign(document.createElement('div'), { id: 'live-region' }));
+});
+afterEach(() => {
+  home?.dispose();
+  home = null;
+  document.querySelectorAll('dialog').forEach((d) => d.remove());
+  vi.restoreAllMocks();
+});
+
+function mount(lib, extra = {}) {
+  home = new Home(root, { library: lib, account: { user: { username: 'sam' } }, onOpen: vi.fn(), onCreate: vi.fn(), onImportFiles: vi.fn(), ...extra });
+  return home;
+}
+
+const navLabels = () => [...root.querySelectorAll('.nav-item')].map((a) => a.textContent);
+const titles = () => [...root.querySelectorAll('.project-title')].map((e) => e.textContent);
+
+describe('home screen', () => {
+  it('shows the sidebar, the new project banner, quick starts and recent projects', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Holiday' });
+    mount(lib);
+    await settle();
+    expect(navLabels()).toEqual(['Home', 'Templates', 'Trash']);
+    expect(root.querySelector('.nav-item[aria-current="page"]').textContent).toBe('Home');
+    expect(root.querySelector('.new-banner').textContent).toContain('New project');
+    const ratios = [...root.querySelectorAll('.ratio-grid .quick-card strong')].map((e) => e.textContent);
+    expect(ratios).toEqual(['16:9', '9:16', '1:1', '4:3', '3:4', '4:5', '21:9']);
+    expect(root.querySelectorAll('.tpl-strip .tpl-card').length).toBe(6);
+    expect(titles()).toEqual(['Holiday']);
+    expect(root.querySelector('.side-user').textContent).toBe('sam');
+    expect(root.querySelector('.storage-usage').textContent).toContain('1 project');
+  });
+
+  it('starts blank projects by shape', async () => {
+    const h = mount(new Library(memoryBackend()));
+    await settle();
+    root.querySelector('.new-banner').click();
+    [...root.querySelectorAll('.ratio-grid .quick-card')][1].click();
+    expect(h.onCreate.mock.calls).toEqual([[{ ratio: 'original' }], [{ ratio: '9:16' }]]);
+  });
+
+  it('names template cards starting with their visible text', async () => {
+    mount(new Library(memoryBackend()));
+    await settle();
+    const cards = root.querySelectorAll('.tpl-strip .tpl-card');
+    expect(cards.length).toBeGreaterThan(0);
+    const words = (t) => t.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    for (const card of cards) {
+      const visible = [card.querySelector('.tpl-badge'), card.querySelector('.tpl-name'), card.querySelector('.tpl-sub')].map((e) => e.textContent).join(' ');
+      expect(words(card.getAttribute('aria-label')).startsWith(words(visible))).toBe(true);
+    }
+  });
+
+  it('names shape cards starting with their visible text', async () => {
+    mount(new Library(memoryBackend()));
+    await settle();
+    for (const card of root.querySelectorAll('.ratio-grid .quick-card')) {
+      const [label, hint] = [...card.querySelectorAll('.quick-text > *')].map((e) => e.textContent);
+      const name = card.getAttribute('aria-label') || `${label} ${hint}`;
+      expect(name.startsWith(hint ? `${label} ${hint}` : label)).toBe(true);
+      expect(name).toMatch(/new project/i);
+    }
+  });
+
+  it('moves a deleted project to the Trash, restores it and deletes it for good', async () => {
+    const lib = new Library(memoryBackend());
+    const p = await lib.createProject({ name: 'Doomed' });
+    await lib.createProject({ name: 'Keeper' });
+    const h = mount(lib);
+    await settle();
+    await h.remove({ id: p.id, name: 'Doomed' });
+    expect(titles()).toEqual(['Keeper']);
+    expect(root.querySelector('.nav-count').textContent).toBe('1');
+
+    h.show('trash');
+    expect(location.hash).toBe('#trash');
+    expect(root.querySelector('.view-title').textContent).toBe('Trash');
+    expect(titles()).toEqual(['Doomed']);
+    expect(root.querySelector('.trashed .project-sub').textContent).toContain(`${TRASH_DAYS} days left`);
+
+    root.querySelector('.trash-actions .btn').click(); // Restore
+    await settle();
+    expect(titles()).toEqual([]);
+    expect((await lib.listProjects()).map((x) => x.name).sort()).toEqual(['Doomed', 'Keeper']);
+
+    await lib.trashProject(p.id);
+    await h.refreshLists();
+    root.querySelector('.trash-actions .danger-text').click();
+    await settle();
+    [...document.querySelectorAll('dialog .btn')].find((b) => b.textContent === 'Delete forever').click();
+    await settle();
+    expect(await lib.listTrash()).toEqual([]);
+    expect(lib.backend.files.has(`projects/${p.id}.json`)).toBe(false);
+    expect(root.textContent).toContain('The Trash is empty.');
+  });
+
+  it('does not call the Trash empty when it failed to load, or emptied when emptying failed', async () => {
+    const lib = new Library(memoryBackend());
+    const p = await lib.createProject({ name: 'Doomed' });
+    await lib.trashProject(p.id);
+    const list = vi.spyOn(lib, 'listProjects').mockRejectedValueOnce(new Error('offline'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = mount(lib);
+    await settle();
+    h.show('trash');
+    expect(root.textContent).toContain("Couldn't load the Trash.");
+    expect(root.textContent).not.toContain('The Trash is empty.');
+    list.mockRestore();
+    [...root.querySelectorAll('.trash-grid .btn')].find((b) => b.textContent === 'Try again').click();
+    await settle();
+    expect(titles()).toEqual(['Doomed']);
+
+    vi.spyOn(lib, 'emptyTrash').mockRejectedValueOnce(new Error('offline'));
+    const live = document.getElementById('live-region') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'live-region' }));
+    live.textContent = '';
+    const done = h.emptyTrash();
+    await settle();
+    [...document.querySelectorAll('dialog .btn')].find((b) => b.textContent === 'Empty Trash').click();
+    await done;
+    await settle(80);
+    expect(live.textContent).not.toContain('Trash emptied');
+    expect(titles()).toEqual(['Doomed']);
+  });
+
+  it('keeps the search box and keyboard focus when a project action refreshes the list', async () => {
+    const lib = new Library(memoryBackend());
+    const a = await lib.createProject({ name: 'Beach' });
+    await new Promise((r) => setTimeout(r, 3));
+    await lib.createProject({ name: 'Berlin' });
+    const h = mount(lib);
+    await settle();
+    const search = root.querySelector('.home-search');
+    search.value = 'Be ';
+    search.dispatchEvent(new Event('input'));
+    expect(titles().sort()).toEqual(['Beach', 'Berlin']);
+    // A refresh while typing leaves the box, and what was typed, alone.
+    search.focus();
+    await h.refreshLists();
+    expect(root.querySelector('.home-search')).toBe(search);
+    expect(search.value).toBe('Be ');
+    expect(document.activeElement).toBe(search);
+    // Moving a project to the Trash from its menu button leaves focus on the next card's button.
+    const more = [...root.querySelectorAll('.project-more')].find((b) => b.getAttribute('aria-label').includes('Beach'));
+    more.focus();
+    await h.remove({ id: a.id, name: 'Beach' });
+    await settle();
+    expect(titles()).toEqual(['Berlin']);
+    expect(document.activeElement?.classList.contains('project-more')).toBe(true);
+    expect(document.activeElement.getAttribute('aria-label')).toContain('Berlin');
+  });
+
+  it('does not trash, delete or rename a project that is open in another tab', async () => {
+    const lib = new Library(memoryBackend());
+    const p = await lib.createProject({ name: 'Busy' });
+    vi.stubGlobal('navigator', { ...navigator, locks: { query: async () => ({ held: [{ name: `video-studio:project:${p.id}` }], pending: [] }) } });
+    try {
+      const h = mount(lib);
+      await settle();
+      await h.remove({ id: p.id, name: 'Busy' });
+      expect(titles()).toEqual(['Busy']);
+      expect([...document.querySelectorAll('.toast')].at(-1).textContent).toContain('Busy is open in another tab');
+      vi.spyOn(lib, 'renameProject');
+      const renaming = h.rename({ id: p.id, name: 'Busy' });
+      await settle();
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      await renaming;
+      expect(lib.renameProject).not.toHaveBeenCalled();
+      // Trashed in a tab that had it closed, then opened again elsewhere from a stale page: Delete forever waits too.
+      await lib.trashProject(p.id);
+      await h.deleteForever({ id: p.id, name: 'Busy' });
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(lib.backend.files.has(`projects/${p.id}.json`)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('adds dropped project files and opens dropped media together', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    const bundles = vi.spyOn(h, 'importBundles').mockResolvedValue();
+    const zip = new File(['zip'], 'Trip.video-studio.zip', { type: 'application/zip' });
+    const clipFile = new File(['v'], 'clip.mp4', { type: 'video/mp4' });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    drop.dataTransfer = { types: ['Files'], files: [zip, clipFile] };
+    root.querySelector('.home').dispatchEvent(drop);
+    await settle();
+    expect(bundles).toHaveBeenCalledWith([zip]);
+    expect(h.onImportFiles).toHaveBeenCalledWith([clipFile]);
+  });
+
+  it('purges projects that have been in the Trash too long when it opens', async () => {
+    const lib = new Library(memoryBackend());
+    const old = await lib.createProject({ name: 'Old' });
+    const recent = await lib.createProject({ name: 'Recent' });
+    await lib.trashProject(old.id, Date.now() - (TRASH_DAYS + 1) * DAY);
+    await lib.trashProject(recent.id, Date.now() - DAY);
+    history.replaceState(null, '', '#trash');
+    mount(lib);
+    await settle();
+    expect(titles()).toEqual(['Recent']);
+    expect(lib.backend.files.has(`projects/${old.id}.json`)).toBe(false);
+  });
+
+  it('lists every template in the Templates view and filters by category and search', async () => {
+    const h = mount(new Library(memoryBackend()));
+    await settle();
+    h.show('templates');
+    const names = () => [...root.querySelectorAll('.tpl-grid .tpl-name')].map((e) => e.textContent);
+    expect(names()).toEqual(TEMPLATES.map((t) => t.name));
+    [...root.querySelectorAll('.home-chip')].find((c) => c.textContent === 'Slideshows').click();
+    expect(names()).toEqual(TEMPLATES.filter((t) => t.category === 'slideshow').map((t) => t.name));
+    const search = root.querySelector('.home-search');
+    search.value = 'countdown';
+    search.dispatchEvent(new Event('input'));
+    expect(names()).toEqual([]);
+    [...root.querySelectorAll('.home-chip')].find((c) => c.textContent === 'All').click();
+    expect(names()).toEqual(['Countdown']);
+  });
+
+  it('opens a template preview with what it contains', async () => {
+    const h = mount(new Library(memoryBackend()));
+    await settle();
+    h.show('templates');
+    root.querySelector('.tpl-grid .tpl-card').click();
+    const dlg = document.querySelector('dialog');
+    expect(dlg.querySelector('.dialog-title').textContent).toBe(TEMPLATES[0].name);
+    expect(dlg.textContent).toContain('Use template');
+  });
+
+  it('formats sizes and days left', () => {
+    expect(formatSize(0)).toBe('0 KB');
+    expect(formatSize(1536)).toBe('2 KB');
+    expect(formatSize(5 * 1024 * 1024)).toBe('5.0 MB');
+    const now = Date.UTC(2026, 2, 1);
+    expect(daysLeft(now, now)).toBe(TRASH_DAYS);
+    expect(daysLeft(now - 29.5 * DAY, now)).toBe(1);
+    expect(daysLeft(now - 40 * DAY, now)).toBe(0);
+  });
+});
+
+describe('home project list', () => {
+  afterEach(() => setPref('homeSort', null));
+
+  it('sorts by name the way people count', async () => {
+    const lib = new Library(memoryBackend());
+    for (const n of ['Project 10', 'project 2', 'Project 1', 'Álbum']) await lib.createProject({ name: n });
+    setPref('homeSort', 'name');
+    mount(lib);
+    await settle();
+    expect(titles()).toEqual(['Álbum', 'Project 1', 'project 2', 'Project 10']);
+  });
+
+  it('looks for a missing cover once, not on every search keystroke', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'No cover' });
+    const reads = vi.spyOn(lib, 'coverBlob');
+    mount(lib);
+    await settle();
+    const search = root.querySelector('.home-search');
+    for (const q of ['n', 'no', 'no ', 'no c']) {
+      search.value = q;
+      search.dispatchEvent(new Event('input'));
+      await settle(5);
+    }
+    expect(reads).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares pending cover reads across redraws and releases their only URL', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Cover' });
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const reads = vi.spyOn(lib, 'coverBlob').mockReturnValue(pending);
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:cover-${create.mock.calls.length}`);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const h = mount(lib);
+    await settle();
+    h.renderGrid();
+    h.renderGrid();
+    finish(new Blob(['jpg'], { type: 'image/jpeg' }));
+    await settle();
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('.project-cover img').getAttribute('src')).toBe('blob:cover-1');
+    h.dispose();
+    expect(revoke.mock.calls).toEqual([['blob:cover-1']]);
+  });
+
+  it('reads covers as their cards come near the screen, not all at once', async () => {
+    const watched = [];
+    globalThis.IntersectionObserver = class {
+      constructor(cb) {
+        this.cb = cb;
+        this.els = new Set();
+        watched.push(this);
+      }
+      observe(el) {
+        this.els.add(el);
+      }
+      unobserve(el) {
+        this.els.delete(el);
+      }
+      disconnect() {
+        this.els.clear();
+      }
+      show(els) {
+        this.cb(els.map((target) => ({ target, isIntersecting: true })));
+      }
+    };
+    try {
+      const lib = new Library(memoryBackend());
+      for (let i = 0; i < 30; i++) {
+        const p = await lib.createProject({ name: `P${i}` });
+        await lib.saveCover(p.id, new Blob(['jpg'], { type: 'image/jpeg' }));
+      }
+      const reads = vi.spyOn(lib, 'coverBlob');
+      mount(lib);
+      await settle();
+      expect(reads).not.toHaveBeenCalled();
+      const io = watched.at(-1);
+      expect(io.els.size).toBe(30);
+      io.show([...root.querySelectorAll('.project-cover')].slice(0, 6));
+      await settle();
+      expect(reads).toHaveBeenCalledTimes(6);
+      expect(root.querySelectorAll('.project-cover img')).toHaveLength(6);
+      // A search draws new cards: the ones read already come from memory, the others wait again.
+      const search = root.querySelector('.home-search');
+      search.value = 'p1';
+      search.dispatchEvent(new Event('input'));
+      await settle();
+      expect(root.querySelectorAll('.project-card')).toHaveLength(11);
+      expect(io.els.size).toBe(11 - root.querySelectorAll('.project-cover img').length);
+    } finally {
+      delete globalThis.IntersectionObserver;
+    }
+  });
+});
+
+
+describe('leaving the home screen', () => {
+  it.each(['purgeTrash', 'listProjects', 'listTrash'])('does not resume rendering when %s finishes after leaving', async (method) => {
+    const lib = new Library(memoryBackend());
+    let finish;
+    const blocked = vi.spyOn(lib, method).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const usage = vi.spyOn(lib, 'storageUsage');
+    const h = mount(lib);
+    await vi.waitFor(() => expect(blocked).toHaveBeenCalled());
+    const render = vi.spyOn(h, 'renderView');
+    h.dispose();
+    document.title = 'Editor - Current project';
+    root.replaceChildren(document.createElement('canvas'));
+    finish([]);
+    await settle();
+    expect(render).not.toHaveBeenCalled();
+    expect(document.title).toBe('Editor - Current project');
+    expect(usage).not.toHaveBeenCalled();
+  });
+
+  it('does not render an old load error after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    let fail;
+    vi.spyOn(lib, 'listProjects').mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = mount(lib);
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+    const render = vi.spyOn(h, 'renderView');
+    h.dispose();
+    fail(new Error('Offline'));
+    await settle();
+    expect(render).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('does not allocate cover URLs or start reads after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    const reads = vi.spyOn(lib, 'coverBlob').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const create = vi.spyOn(URL, 'createObjectURL');
+    const cover = document.createElement('div');
+    const first = h.loadCover('p', cover);
+    h.dispose();
+    const second = h.loadCover('other', cover);
+    finish(new Blob(['jpg']));
+    await Promise.all([first, second]);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+    expect(cover.children).toHaveLength(0);
+    expect(h.coverUrls.size).toBe(0);
+  });
+
+  it('does not update detached storage usage after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    vi.spyOn(lib, 'storageUsage').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const before = h.usageEl.textContent;
+    const pending = h.refreshUsage();
+    h.dispose();
+    finish({ projects: 99, mediaBytes: 0, trashed: 0 });
+    await pending;
+    expect(h.usageEl.textContent).toBe(before);
+  });
+});
+
+describe('home refresh ordering', () => {
+  it('keeps the newest project list when an older refresh finishes last', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Before' });
+    const h = mount(lib);
+    await settle();
+    const old = h.projects.map((p) => ({ ...p }));
+    const latest = old.map((p) => ({ ...p, name: 'Latest' }));
+    let finish;
+    vi.spyOn(lib, 'listProjects').mockReturnValueOnce(new Promise((resolve) => { finish = resolve; })).mockResolvedValueOnce(latest);
+    const first = h.refreshLists();
+    await h.refreshLists();
+    expect(titles()).toEqual(['Latest']);
+    finish(old);
+    await first;
+    expect(titles()).toEqual(['Latest']);
+  });
+
+  it('keeps a successful refresh visible when an older load fails afterwards', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Latest' });
+    const h = mount(lib);
+    await settle();
+    let fail;
+    vi.spyOn(lib, 'listProjects').mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const old = h.load();
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+    await h.refreshLists();
+    fail(new Error('Old read failed'));
+    await old;
+    expect(titles()).toEqual(['Latest']);
+    expect(h.loaded).toBe(true);
+    expect(h.loadError).toBe(false);
+  });
+
+  it.each([false, true])('keeps newer storage usage when an older request settles (failure: %s)', async (failure) => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    let fail;
+    vi.spyOn(lib, 'storageUsage').mockReturnValueOnce(new Promise((resolve, reject) => { finish = resolve; fail = reject; })).mockResolvedValueOnce({ projects: 2, mediaBytes: 1024, trashed: 0 });
+    const old = h.refreshUsage();
+    await h.refreshUsage();
+    const latest = h.usageEl.textContent;
+    expect(latest).toContain('2 projects');
+    if (failure) fail(new Error('Old read failed'));
+    else finish({ projects: 1, mediaBytes: 0, trashed: 0 });
+    await old;
+    expect(h.usageEl.textContent).toBe(latest);
+    expect(h.mobileStorage.querySelector('.storage-usage').textContent).toBe(latest);
+  });
+});

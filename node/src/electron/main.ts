@@ -14,6 +14,7 @@ import { Recorder } from "../core/recorder.js";
 import { AudioRecorder } from "../core/audio-recorder.js";
 import { evenSize, isValidCapture, normalizeFps } from "../core/record-rect.js";
 import { canTrimPath, defaultOutputPath, isAudioPath, keepFromRemove } from "../core/trim-range.js";
+import { promoteToFolder } from "../core/recording-save-path.js";
 import { cut as ffmpegCut } from "../core/ffmpeg-cut.js";
 import { uploadFile } from "../core/uploaders.js";
 import { appRoot, ensureMigrated, userDataDir } from "../core/paths.js";
@@ -604,7 +605,8 @@ async function toggleRecord(): Promise<void> {
     toolbar?.show();
     if (file) {
       try { tempRec.markComplete(file); } catch { /* ignore */ }
-      openView("done", { file });
+      const dest = promoteToFolder(file, settings.recording.saveFolder || settings.saveFolder);
+      openView("done", { file: dest });
     }
     return;
   }
@@ -993,7 +995,11 @@ ipcMain.handle("record:audioStop", async () => {
   if (!audioRecorder) return null;
   await audioRecorder.stop();
   audioRecorder = null;
-  return true;
+  const file = lastRecordFile;
+  try { tempRec.markComplete(file); } catch { /* ignore */ }
+  const dest = promoteToFolder(file, settings.audioRecording?.saveFolder || settings.saveFolder);
+  lastRecordFile = dest;
+  return dest;
 });
 ipcMain.handle("record:audioPause", () => audioRecorder?.pause());
 ipcMain.handle("record:audioResume", () => audioRecorder?.resume());

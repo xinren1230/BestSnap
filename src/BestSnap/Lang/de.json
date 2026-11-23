@@ -480,6 +480,19 @@
   "鼠标与按键": "Maus und Tasten",
   "编码": "Kodierung",
   "文件名": "Dateiname",
-  "按开始时间自动命名": "automatisch nach Startzeit benannt"
+  "按开始时间自动命名": "automatisch nach Startzeit benannt",
+  "已保存到": "Gespeichert unter",
+  "打开文件位置": "Dateispeicherort öffnen",
+  "编辑视频": "Video bearbeiten",
+  "录制已保存": "Aufnahme gespeichert",
+  "录屏已保存": "Bildschirmaufnahme gespeichert",
+  "录屏已完成，但保存失败": "Aufnahme beendet, Speichern fehlgeschlagen",
+  "录音已完成，但保存失败：\n": "Aufnahme beendet, Speichern fehlgeschlagen:\n",
+  "无法打开视频编辑器：\n": "Videoeditor konnte nicht geöffnet werden:\n",
+  "找不到编辑器文件。": "Editor-Dateien wurden nicht gefunden.",
+  "未安装 WebView2 运行时或找不到编辑器文件，无法打开视频编辑。": "WebView2 fehlt oder die Editor-Dateien wurden nicht gefunden.",
+  "视频编辑": "Videobearbeitung",
+  "发现 {0} 个未保存的临时录音，已写入保存文件夹。": "{0} ungespeicherte Temp-Aufnahme(n) gefunden und in den Ordner übernommen.",
+  "停止后立即保存到该文件夹": "wird beim Stoppen sofort in diesem Ordner gespeichert"
  }
 }
