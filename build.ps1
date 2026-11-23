@@ -116,6 +116,13 @@ $FormulaModels = @(
 )
 
 # 0) vendored Video Studio (AGPL-3.0) -> dist for WebView2 host
+function Copy-VideoStudioLicenses {
+    param([Parameter(Mandatory = $true)][string]$DestDir)
+    New-Item -ItemType Directory -Force $DestDir | Out-Null
+    Copy-Item (Join-Path $PSScriptRoot "third_party\video-studio\LICENSE") (Join-Path $DestDir "LICENSE")
+    Copy-Item (Join-Path $PSScriptRoot "third_party\video-studio\NOTICE") (Join-Path $DestDir "NOTICE")
+}
+
 function Build-VideoStudio {
     $vs = Join-Path $PSScriptRoot "third_party\video-studio"
     $node = Get-Command node -ErrorAction SilentlyContinue
@@ -124,10 +131,12 @@ function Build-VideoStudio {
     }
     Push-Location $vs
     try {
-        if (Test-Path -LiteralPath "package-lock.json") { npm ci }
-        else { npm install }
+        # npm/vite write to the success stream; pipe to Out-Host so `$vsDist = Build-VideoStudio`
+        # is only the dist path (empty npm lines were becoming Copy-Item Path "").
+        if (Test-Path -LiteralPath "package-lock.json") { npm ci | Out-Host }
+        else { npm install | Out-Host }
         if ($LASTEXITCODE) { throw "npm ci failed for video-studio" }
-        npm run build
+        npm run build | Out-Host
         if ($LASTEXITCODE) { throw "video-studio vite build failed" }
     } finally { Pop-Location }
     $dist = Join-Path $vs "dist"
@@ -137,6 +146,9 @@ function Build-VideoStudio {
     return $dist
 }
 $vsDist = Build-VideoStudio
+if (-not (Test-Path -LiteralPath (Join-Path $vsDist "index.html"))) {
+    throw "video-studio dist path is not usable: $vsDist"
+}
 
 # 1) OCR / face / webcam plugin (+ WinRT projection) -> rt\plugins\BestSnap.Ocr
 dotnet publish src\BestSnap.Ocr -c $Configuration -r win-x64 --self-contained false -o "$rt\plugins\BestSnap.Ocr"
@@ -182,9 +194,16 @@ Get-ChildItem publish | ForEach-Object {
     Remove-Item $_.FullName -Recurse -Force
 }
 $vsPublish = Join-Path "publish" "video-studio"
-Copy-Item $vsDist $vsPublish -Recurse -Force
+# If dest already exists, Copy-Item nests the source folder (video-studio\dist\...). Wipe first.
+if (Test-Path -LiteralPath $vsPublish) { Remove-Item -LiteralPath $vsPublish -Recurse -Force }
+New-Item -ItemType Directory -Force $vsPublish | Out-Null
+Copy-Item (Join-Path $vsDist "*") $vsPublish -Recurse -Force
 if (-not (Test-Path -LiteralPath (Join-Path $vsPublish "index.html"))) {
     throw "publish missing video-studio\index.html"
+}
+Copy-VideoStudioLicenses (Join-Path "publish" "licenses\video-studio")
+if (-not (Test-Path -LiteralPath (Join-Path "publish" "licenses\video-studio\LICENSE"))) {
+    throw "publish missing licenses\video-studio\LICENSE"
 }
 if (Test-Path -LiteralPath $webviewLoaderKeep) {
     Copy-Item -LiteralPath $webviewLoaderKeep (Join-Path "publish" "WebView2Loader.dll") -Force
@@ -240,10 +259,7 @@ Sign-RuntimeDlls (Join-Path $payload "runtimes")
 Copy-Item (Join-Path $PSScriptRoot "LICENSE") (Join-Path $payload "LICENSE")
 Copy-Item (Join-Path $PSScriptRoot "NOTICE") (Join-Path $payload "NOTICE")
 Copy-Item (Join-Path $PSScriptRoot "installer\licenses") (Join-Path $payload "licenses") -Recurse
-$vsLicense = Join-Path $payload "licenses\video-studio"
-New-Item -ItemType Directory -Force $vsLicense | Out-Null
-Copy-Item (Join-Path $PSScriptRoot "third_party\video-studio\LICENSE") (Join-Path $vsLicense "LICENSE")
-Copy-Item (Join-Path $PSScriptRoot "third_party\video-studio\NOTICE") (Join-Path $vsLicense "NOTICE")
+Copy-VideoStudioLicenses (Join-Path $payload "licenses\video-studio")
 Copy-Item (Join-Path "publish" "video-studio") (Join-Path $payload "video-studio") -Recurse -Force
 $loaderPub = Join-Path "publish" "WebView2Loader.dll"
 if (Test-Path -LiteralPath $loaderPub) { Copy-Item $loaderPub (Join-Path $payload "WebView2Loader.dll") }

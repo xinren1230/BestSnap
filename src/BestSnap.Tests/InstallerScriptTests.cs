@@ -77,11 +77,15 @@ namespace BestSnap.Tests
             Assert.Contains("vulkan", text);
             Assert.Contains("Filter *.dll", text);
             Assert.Contains("Build-VideoStudio", text);
+            Assert.Contains("Copy-VideoStudioLicenses", text);
+            Assert.Contains("Out-Host", text);
             Assert.Contains("npm ci", text);
             Assert.Contains("npm run build", text);
             Assert.Contains("third_party\\video-studio", text);
             Assert.Contains("video-studio", text);
+            Assert.Contains(@"licenses\video-studio", text);
             Assert.Contains("WebView2Loader.dll", text);
+            Assert.Contains("If dest already exists, Copy-Item nests", text);
             Assert.DoesNotContain(".pfx", text, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("password", text, StringComparison.OrdinalIgnoreCase);
         }
